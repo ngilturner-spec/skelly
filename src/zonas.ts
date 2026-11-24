@@ -16,6 +16,10 @@ export interface Zona {
   sim?: boolean;
   /** restar esta zona (para hacer anillos, huecos…) */
   menos?: boolean;
+  /** el radio va en fracción de cada eje del hueso (no de la medida más grande): sirve para «la mitad de delante» de huesos distintos */
+  norm?: boolean;
+  /** pintar solo donde la superficie mira hacia aquí (x: hacia la izquierda del paciente… en el lado derecho; se refleja en el izquierdo) */
+  cara?: [number, number, number];
 }
 
 /** Datos de la malla ya preparados para pintar rápido. */
@@ -26,9 +30,11 @@ export interface MallaNorm {
   tam: [number, number, number];
   maxTam: number;
   espejo: boolean;
+  /** normales en el mundo (opcional) */
+  nor?: Float32Array;
 }
 
-export function prepararMalla(pos: Float32Array, espejo: boolean): MallaNorm {
+export function prepararMalla(pos: Float32Array, espejo: boolean, nor?: Float32Array): MallaNorm {
   const min: [number, number, number] = [Infinity, Infinity, Infinity];
   const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < pos.length; i += 3)
@@ -37,8 +43,13 @@ export function prepararMalla(pos: Float32Array, espejo: boolean): MallaNorm {
       max[k] = Math.max(max[k], pos[i + k]);
     }
   const tam: [number, number, number] = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
-  return { pos, min, tam, maxTam: Math.max(...tam), espejo };
+  return { pos, min, tam, maxTam: Math.max(...tam), espejo, nor };
 }
+
+const normalizar = (v: number[]) => {
+  const l = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / l, v[1] / l, v[2] / l];
+};
 
 const suave = (a: number, b: number, x: number) => {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
@@ -57,7 +68,8 @@ export function pesos(m: MallaNorm, zonas: Zona[]): Float32Array {
     return {
       menos: !!z.menos,
       c: [m.min[0] + x * m.tam[0], m.min[1] + z.c[1] * m.tam[1], m.min[2] + z.c[2] * m.tam[2]],
-      inv: r.map((ri) => 1 / Math.max(1e-6, ri * m.maxTam)),
+      inv: r.map((ri, k) => 1 / Math.max(1e-6, ri * (z.norm ? m.tam[k] : m.maxTam))),
+      cara: z.cara ? normalizar([m.espejo ? -z.cara[0] : z.cara[0], z.cara[1], z.cara[2]]) : null,
     };
   });
   for (let i = 0; i < n; i++) {
@@ -69,7 +81,11 @@ export function pesos(m: MallaNorm, zonas: Zona[]): Float32Array {
       const dz = (m.pos[i * 3 + 2] - z.c[2]) * z.inv[2];
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (d >= 1) continue;
-      const v = 1 - suave(0.7, 1, d);
+      let v = 1 - suave(0.7, 1, d);
+      if (z.cara && m.nor) {
+        const dot = m.nor[i * 3] * z.cara[0] + m.nor[i * 3 + 1] * z.cara[1] + m.nor[i * 3 + 2] * z.cara[2];
+        v *= suave(0.15, 0.55, dot);
+      }
       if (z.menos) resta = Math.max(resta, v);
       else mejor = Math.max(mejor, v);
     }
@@ -102,5 +118,5 @@ export function centroPintado(m: MallaNorm, w: Float32Array): [number, number, n
 export function pesoEnPunto(m: MallaNorm, zonas: Zona[], punto: [number, number, number]): number {
   const x = m.espejo ? 1 - punto[0] : punto[0];
   const pos = new Float32Array([m.min[0] + x * m.tam[0], m.min[1] + punto[1] * m.tam[1], m.min[2] + punto[2] * m.tam[2]]);
-  return pesos({ ...m, pos }, zonas)[0];
+  return pesos({ ...m, pos, nor: undefined }, zonas)[0];
 }

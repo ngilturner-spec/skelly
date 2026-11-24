@@ -8,7 +8,7 @@ import { t, tGrupo, tRegion, idioma, cambiarIdioma, nombre, sinonimos, nombreDe,
 import { sonidoAcierto, sonidoFallo } from './sonido';
 import * as srs from './srs';
 import { BufferAttribute as THREE_BA } from 'three';
-import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, type Apartado } from './data/partes';
+import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, anadirParte, eliminarParte, esPropia, borradasEn, recuperarBorradas, cambiosPropios, hayCambiosPropios, type Apartado } from './data/partes';
 import type { Zona } from './zonas';
 import { pesoEnPunto, aNormal } from './zonas';
 import type { Estilo, Modo, Tarjeta } from './srs';
@@ -494,7 +494,12 @@ function explorar() {
 let partesAp: string | null = null;
 let partesParte: string | null = null;
 let partesHueso = 0;
-let borrador: Zona[] | null = null; // zonas mientras se corrige (null = no se está corrigiendo)
+/** zonas mientras se pinta, por hueso (null = no se está pintando) */
+let borrador: Map<string, Zona[]> | null = null;
+/** huesos de cada bola pintada, en orden (para deshacer) */
+let pilaEd: string[] = [];
+/** al añadir una parte nueva: su nombre y otros nombres (null = se está corrigiendo una parte que ya existe) */
+let nuevaParte: { nombre: string; sin: string } | null = null;
 let radioEd = 0.08;
 function partesUI(reencuadrar = true) {
   visor.clicable = true;
@@ -503,9 +508,10 @@ function partesUI(reencuadrar = true) {
   const ap = partesAp ? apartadoPorId.get(partesAp) : null;
   if (!ap) {
     borrador = null;
+    nuevaParte = null;
     visor.mostrarTodos(vistaEstudio(), false);
     const secciones = [...new Set(APARTADOS.map((a) => a.seccion))];
-    const nCorr = Object.keys(zonasCorregidas()).length;
+    const nCambios = hayCambiosPropios();
     h(`
       <h2>${t('partesTitulo')}</h2>
       <div class="ayuda">${t('partesAyuda')}</div>
@@ -517,7 +523,7 @@ function partesUI(reencuadrar = true) {
               .join('')}</div>`,
         )
         .join('')}
-      ${nCorr ? `<div class="ayuda">${t('correcciones')}: ${nCorr}</div><button class="btn" id="copiar">${t('copiarCorr')}</button>` : ''}`);
+      ${nCambios ? `<div class="ayuda">${t('cambiosTuyos')}: ${nCambios}</div><button class="btn" id="copiar">${t('copiarCorr')}</button>` : ''}`);
     todos<HTMLButtonElement>('[data-ap]').forEach(
       (b) =>
         (b.onclick = () => {
@@ -527,9 +533,9 @@ function partesUI(reencuadrar = true) {
           partesUI();
         }),
     );
-    if (nCorr)
+    if (nCambios)
       $('#copiar').onclick = async () => {
-        const txt = JSON.stringify(zonasCorregidas());
+        const txt = JSON.stringify(cambiosPropios());
         try {
           await navigator.clipboard.writeText(txt);
           $('#copiar').textContent = t('copiado');
@@ -542,71 +548,109 @@ function partesUI(reencuadrar = true) {
   const ids = huesosDe(ap, partesHueso);
   const parte = ap.partes.find((p) => p.id === partesParte) ?? null;
   const pp = parte ? partePorId.get(`PT:${ap.id}:${parte.id}`)! : null;
-  const zonasAhora = () => (borrador ? new Map(ids.map((id) => [id, borrador!])) : parte ? zonasDe(parte, ids, pp!.id) : new Map<string, Zona[]>());
-  if (reencuadrar) visor.mostrarParte(ids, zonasAhora(), parte?.dir);
+  const zonasAhora = () =>
+    borrador ? new Map(ids.map((id) => [id, borrador!.get(id) ?? []])) : parte ? zonasDe(parte, ids, pp!.id) : new Map<string, Zona[]>();
+  if (reencuadrar) visor.mostrarParte(ids, zonasAhora(), borrador && nuevaParte ? undefined : parte?.dir);
   else visor.pintarZonas(zonasAhora());
   const variosHuesos = !ap.conjunto && ap.huesos.length > 1;
   const corregida = pp ? !!zonasCorregidas()[pp.id] : false;
+  // las bolas pintadas, tal como se guardan: una lista para todos los huesos, o una por hueso si se ven juntos
+  const zonasBorrador = () => (ap.conjunto ? Object.fromEntries([...borrador!].filter(([, z]) => z.length)) : (borrador!.get(ids[0]) ?? []));
+  const nBolas = () => [...(borrador?.values() ?? [])].reduce((s, z) => s + z.length, 0);
 
-  if (borrador && pp) {
-    // ---------- modo corregir ----------
+  if (borrador && (pp || nuevaParte)) {
+    // ---------- pintar: corregir una parte o crear una nueva ----------
+    const np = nuevaParte;
     h(`
-      <h2>${t('corrigiendo')}</h2>
-      <div class="objetivo"><div class="etiqueta">${esc(nombreAp(ap))}</div>${esc(mayus(nombre(pp)))}</div>
-      <div class="ayuda">${t('ayudaEditor')}</div>
+      <h2>${np ? t('nuevaParte') : t('corrigiendo')}</h2>
+      ${
+        np
+          ? `<div class="etiqueta">${esc(nombreAp(ap))}</div>
+             <input class="campo" id="nombreP" placeholder="${t('nombreParte')}" value="${esc(np.nombre)}"/>
+             <input class="campo" id="sinP" placeholder="${t('sinonimosParte')}" value="${esc(np.sin)}"/>
+             <div class="ayuda">${t('ayudaNueva')}</div>`
+          : `<div class="objetivo"><div class="etiqueta">${esc(nombreAp(ap))}</div>${esc(mayus(nombre(pp!)))}</div>
+             <div class="ayuda">${t('ayudaEditor')}</div>`
+      }
       <div class="fila"><span>${t('tamBola')}</span><input type="range" id="radio" min="0.02" max="0.25" step="0.01" value="${radioEd}"/></div>
       <div class="botones">
-        <button class="btn" id="deshacer" ${borrador.length ? '' : 'disabled'}>${t('deshacer')}</button>
+        <button class="btn" id="deshacer" ${pilaEd.length ? '' : 'disabled'}>${t('deshacer')}</button>
         <button class="btn" id="cero">${t('deCero')}</button>
       </div>
+      <div class="resultado" id="aviso" hidden>${t('faltaNombre')}</div>
       <div class="botones">
         <button class="btn" id="cancelar">${t('cancelar')}</button>
         <button class="btn principal" id="guardar">${t('guardar')}</button>
       </div>`);
+    if (np) {
+      $<HTMLInputElement>('#nombreP').oninput = (e) => (np.nombre = (e.target as HTMLInputElement).value);
+      $<HTMLInputElement>('#sinP').oninput = (e) => (np.sin = (e.target as HTMLInputElement).value);
+      if (!np.nombre) $<HTMLInputElement>('#nombreP').focus();
+    }
     $<HTMLInputElement>('#radio').oninput = (e) => (radioEd = +(e.target as HTMLInputElement).value);
     $('#deshacer').onclick = () => {
-      borrador!.pop();
+      const id = pilaEd.pop();
+      if (id) borrador!.get(id)?.pop();
       partesUI(false);
     };
     $('#cero').onclick = () => {
-      borrador = [];
+      borrador = new Map();
+      pilaEd = [];
       partesUI(false);
     };
     $('#cancelar').onclick = () => {
       borrador = null;
+      nuevaParte = null;
       partesUI(false);
     };
     $('#guardar').onclick = () => {
-      guardarZonas(pp.id, borrador);
+      if (np) {
+        const n = np.nombre.trim();
+        if (!n || !nBolas()) {
+          $('#aviso').hidden = false;
+          return;
+        }
+        const sin = np.sin.split(',').map((s) => s.trim()).filter(Boolean);
+        partesParte = anadirParte(ap.id, n, sin, zonasBorrador());
+      } else guardarZonas(pp!.id, zonasBorrador());
       borrador = null;
+      nuevaParte = null;
       partesUI(false);
     };
-    visor.onClickPunto = (_id, punto) => {
-      borrador!.push({ c: punto, r: radioEd });
+    visor.onClickPunto = (id, punto) => {
+      if (!borrador!.has(id)) borrador!.set(id, []);
+      borrador!.get(id)!.push({ c: punto, r: radioEd });
+      pilaEd.push(id);
       partesUI(false);
     };
     return;
   }
 
+  const borradas = borradasEn(ap.id);
   h(`
     <button class="volver" id="atras">← ${t('partes')}</button>
     <h2>${esc(nombreAp(ap))}</h2>
     ${
       pp
-        ? `<div class="objetivo"><div class="etiqueta">${t('parteSel')}${corregida ? ` · ${t('corregida')}` : ''}</div>${esc(mayus(nombre(pp)))}</div>${sinonimosHtml(sinonimos(pp), nombre(pp))}`
+        ? `<div class="objetivo"><div class="etiqueta">${t('parteSel')}${corregida ? ` · ${t('corregida')}` : ''}${esPropia(ap.id, parte!.id) ? ` · ${t('parteTuya')}` : ''}</div>${esc(mayus(nombre(pp)))}</div>${sinonimosHtml(sinonimos(pp), nombre(pp))}`
         : `<div class="resultado">${t('eligeParte')}</div>`
     }
     <div class="botones">
       ${variosHuesos ? `<button class="btn" id="otro">${t('otroEjemplo')}</button>` : ''}
-      ${pp && !ap.conjunto ? `<button class="btn" id="corregir">${t('corregirZona')}</button>` : ''}
+      ${pp ? `<button class="btn" id="corregir">${t('corregirZona')}</button>` : ''}
       ${corregida ? `<button class="btn" id="original">${t('zonaOriginal')}</button>` : ''}
+      ${pp ? `<button class="btn peligro" id="eliminar">${t('eliminarParte')}</button>` : ''}
     </div>
     <div class="lista-partes">${ap.partes
       .map((p) => {
         const q = partePorId.get(`PT:${ap.id}:${p.id}`)!;
-        return `<button class="fila ${p.id === partesParte ? 'activo' : ''}" data-parte="${p.id}"><span>${esc(mayus(nombre(q)))}</span></button>`;
+        return `<button class="fila ${p.id === partesParte ? 'activo' : ''}" data-parte="${p.id}"><span>${esc(mayus(nombre(q)))}</span>${esPropia(ap.id, p.id) ? `<small>${t('parteTuya')}</small>` : ''}</button>`;
       })
-      .join('')}</div>`);
+      .join('')}</div>
+    <div class="botones">
+      <button class="btn" id="anadir">${t('anadirParte')}</button>
+      ${borradas ? `<button class="btn" id="recuperar">${t('recuperarBorradas')} (${borradas})</button>` : ''}
+    </div>`);
   const elegir = (id: string) => {
     partesParte = id;
     partesUI();
@@ -621,9 +665,31 @@ function partesUI(reencuadrar = true) {
       partesHueso = (partesHueso + 1) % ap.huesos.length;
       partesUI();
     };
-  if (pp && !ap.conjunto)
+  if (pp) {
     $('#corregir').onclick = () => {
-      borrador = [...(zonasDe(parte!, ids, pp.id).get(ids[0]) ?? [])];
+      const z = zonasDe(parte!, ids, pp.id);
+      borrador = new Map(ids.map((id) => [id, [...(z.get(id) ?? [])]]));
+      pilaEd = [];
+      nuevaParte = null;
+      partesUI(false);
+    };
+    $('#eliminar').onclick = () => {
+      if (!confirm(t('eliminarSeguro'))) return;
+      eliminarParte(ap.id, parte!.id);
+      partesParte = null;
+      partesUI(false);
+    };
+  }
+  $('#anadir').onclick = () => {
+    partesParte = null;
+    borrador = new Map();
+    pilaEd = [];
+    nuevaParte = { nombre: '', sin: '' };
+    partesUI(false);
+  };
+  if (borradas)
+    $('#recuperar').onclick = () => {
+      recuperarBorradas(ap.id);
       partesUI(false);
     };
   if (corregida)
@@ -972,15 +1038,126 @@ if (import.meta.env.DEV) {
     visor.mostrarParte(ids, z, p.dir);
     return p.nombre;
   };
-  // rayo desde la cámara por un punto de la pantalla (0–1) → coordenadas normalizadas del hueso
-  (window as unknown as Record<string, unknown>).__pick = (pts: [number, number][]) => {
-    const v = visor as unknown as { raycaster: import('three').Raycaster; camera: import('three').Camera; solo: Set<string>; piezas: Map<string, { mesh: import('three').Object3D }> };
-    const id = [...v.solo][0];
+  // por tramos del eje eb (a→b, n tramos): el vértice más extremo en el eje ee (s = 1 máx, −1 mín), en coords normalizadas
+  (window as unknown as Record<string, unknown>).__perfil = (id: string, eb: 'x' | 'y' | 'z', a: number, b: number, n: number, ee: 'x' | 'y' | 'z', s: number, filtro?: (p: number[]) => boolean) => {
+    const m = visor.mallaNorm(id)!;
+    const E = { x: 0, y: 1, z: 2 };
+    const out: string[] = [];
+    for (let k = 0; k < n; k++) {
+      const lo = a + ((b - a) * k) / n, hi = a + ((b - a) * (k + 1)) / n;
+      let best: number[] | null = null;
+      for (let i = 0; i < m.pos.length / 3; i++) {
+        const p = [0, 1, 2].map((j) => (m.pos[i * 3 + j] - m.min[j]) / m.tam[j]);
+        if (m.espejo) p[0] = 1 - p[0];
+        const v = p[E[eb]];
+        if (v < lo || v >= hi || (filtro && !filtro(p))) continue;
+        if (!best || s * p[E[ee]] > s * best[E[ee]]) best = p;
+      }
+      if (best) out.push(best.map((x) => x.toFixed(2)).join(','));
+    }
+    return out.join(' | ');
+  };
+  // cuántos vértices pinta cada parte (peso > 0.5) en el hueso i del apartado
+  (window as unknown as Record<string, unknown>).__cuenta = async (ap: string, i = 0) => {
+    const { apartadoPorId } = await import('./data/partes');
+    const { pesos } = await import('./zonas');
+    const a = apartadoPorId.get(ap)!;
+    const ids = a.conjunto ? a.huesos : [a.huesos[i % a.huesos.length]];
+    const out: Record<string, number> = {};
+    for (const p of a.partes) {
+      let n = 0;
+      for (const id of ids) {
+        const m = visor.mallaNorm(id);
+        const zs = Array.isArray(p.zonas) ? p.zonas : (p.zonas[id] ?? []);
+        if (!m || !zs.length) continue;
+        for (const w of pesos(m, zs)) if (w > 0.5) n++;
+      }
+      out[p.id] = n;
+    }
+    return out;
+  };
+  // mapa de profundidad con rayos paralelos a un eje: 'z+' desde delante, 'z-' desde detrás, 'y+' desde arriba, 'x-' desde la derecha del paciente…
+  (window as unknown as Record<string, unknown>).__rayo = (id: string, eje: string, W = 40, H = 36) => {
+    const v = visor as unknown as { raycaster: import('three').Raycaster; piezas: Map<string, { mesh: import('three').Object3D }>; camera: import('three').Camera };
     const mn = visor.mallaNorm(id)!;
+    const obj = v.piezas.get(id)!.mesh;
+    const V3 = v.camera.position.constructor as new (x: number, y: number, z: number) => import('three').Vector3;
+    const ejes: Record<string, number[]> = { 'z+': [0, 1, 2, 1], 'z-': [0, 1, 2, -1], 'y+': [0, 2, 1, 1], 'y-': [0, 2, 1, -1], 'x-': [2, 1, 0, -1], 'x+': [2, 1, 0, 1] };
+    const [a, b, c, s] = ejes[eje];
+    const filas: string[] = [];
+    for (let r = 0; r < H; r++) {
+      const w = 1 - (r + 0.5) / H;
+      let fila = '';
+      for (let k = 0; k < W; k++) {
+        const u = (k + 0.5) / W;
+        const o = [0, 0, 0];
+        o[a] = mn.min[a] + u * mn.tam[a];
+        o[b] = mn.min[b] + w * mn.tam[b];
+        o[c] = s > 0 ? mn.min[c] + mn.tam[c] * 1.5 : mn.min[c] - mn.tam[c] * 0.5;
+        const d = [0, 0, 0];
+        d[c] = -s;
+        v.raycaster.set(new V3(o[0], o[1], o[2]), new V3(d[0], d[1], d[2]));
+        v.raycaster.far = 1e9;
+        const hit = v.raycaster.intersectObject(obj, true)[0];
+        if (!hit) {
+          fila += ' ';
+          continue;
+        }
+        const t = (hit.point.getComponent(c) - mn.min[c]) / mn.tam[c];
+        fila += String(Math.max(0, Math.min(9, Math.floor((s > 0 ? t : 1 - t) * 10))));
+      }
+      filas.push(w.toFixed(2) + ' ' + fila);
+    }
+    return `${eje} cols=${'xyz'[a]} filas=${'xyz'[b]} tam(mm)=${mn.tam.map((x) => Math.round(x * 100))} (9 = más cerca)\n${filas.join('\n')}`;
+  };
+  // foto grande de uno o varios huesos (sin pintar), opcionalmente acercándose a un punto (coordenadas normalizadas del primero)
+  (window as unknown as Record<string, unknown>).__foto = (ids: string | string[], dir: [number, number, number], c?: [number, number, number], r = 0.1) => {
+    const lista = Array.isArray(ids) ? ids : [ids];
+    const v = visor as unknown as { renderer: import('three').WebGLRenderer; scene: import('three').Scene; camera: import('three').Camera; encuadrar: (s: import('three').Sphere, d: import('three').Vector3, m: number, b: boolean) => void };
+    const w = window as unknown as Record<string, (...x: unknown[]) => unknown>;
+    visor.setMargen(1, 0);
+    visor.mostrarParte(lista, new Map(), dir);
+    if (c) {
+      const mn = visor.mallaNorm(lista[0])!;
+      const x = mn.espejo ? 1 - c[0] : c[0];
+      const T = v.camera.position.constructor as new (x: number, y: number, z: number) => import('three').Vector3;
+      const S = (visor as unknown as { esferaCompleta: import('three').Sphere }).esferaCompleta.constructor as new (c: import('three').Vector3, r: number) => import('three').Sphere;
+      v.encuadrar(new S(new T(mn.min[0] + x * mn.tam[0], mn.min[1] + c[1] * mn.tam[1], mn.min[2] + c[2] * mn.tam[2]), r * mn.maxTam), new T(...dir).normalize(), 1.1, true);
+    }
+    w.__dibujar(90);
+    v.renderer.render(v.scene, v.camera);
+    let img = document.getElementById('__img') as HTMLImageElement | null;
+    if (!img) {
+      img = document.createElement('img');
+      img.id = '__img';
+      img.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;z-index:99;background:#000';
+      document.body.append(img);
+    }
+    img.src = v.renderer.domElement.toDataURL();
+    return 'ok';
+  };
+  // puntos de una captura de 800 px de ancho de __foto → coordenadas normalizadas (del primer hueso, o de id)
+  (window as unknown as Record<string, unknown>).__pickF = (pts: [number, number][], id?: string) => {
+    const el = (visor as unknown as { renderer: import('three').WebGLRenderer }).renderer.domElement;
+    const k = Math.min(innerWidth / el.width, innerHeight / el.height);
+    const ox = (innerWidth - el.width * k) / 2;
+    const oy = (innerHeight - el.height * k) / 2;
+    const f = innerWidth / 800;
+    const w = window as unknown as Record<string, (p: [number, number][], id?: string) => string[]>;
+    const res = w.__pick(pts.map(([x, y]) => [(x * f - ox) / k / el.width, (y * f - oy) / k / el.height] as [number, number]), id);
+    return res.map((r, i) => `${pts[i]} → ${r}`).join('\n');
+  };
+  // rayo desde la cámara por un punto de la pantalla (0–1) → coordenadas normalizadas del hueso
+  (window as unknown as Record<string, unknown>).__pick = (pts: [number, number][], soloId?: string) => {
+    const v = visor as unknown as { raycaster: import('three').Raycaster; camera: import('three').Camera; solo: Set<string>; piezas: Map<string, { mesh: import('three').Object3D }> };
+    const ids = soloId ? [soloId] : [...v.solo];
+    const mallas = ids.map((id) => v.piezas.get(id)!.mesh);
     return pts.map(([sx, sy]) => {
       v.raycaster.setFromCamera({ x: sx * 2 - 1, y: -(sy * 2 - 1) } as import('three').Vector2, v.camera);
-      const hit = v.raycaster.intersectObject(v.piezas.get(id)!.mesh, true)[0];
-      return hit ? aNormal(mn, hit.point).join(',') : '-';
+      const hit = v.raycaster.intersectObjects(mallas, true)[0];
+      if (!hit) return '-';
+      const id = ids[mallas.indexOf(hit.object)] ?? ids[0];
+      return (ids.length > 1 ? id + ' ' : '') + aNormal(visor.mallaNorm(id)!, hit.point).join(',');
     });
   };
 }

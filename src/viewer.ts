@@ -331,18 +331,33 @@ export class Visor {
     }
     // huesos del lado izquierdo: las zonas se escriben para el derecho y se reflejan
     const espejo = p.esfera.center.x > this.esferaCompleta.center.x + 0.3;
-    const m = prepararMalla(pos, espejo);
+    // normales en el mundo (para zonas que solo pintan una cara)
+    const nAttr = p.mesh.geometry.getAttribute('normal');
+    let nor: Float32Array | undefined;
+    if (nAttr) {
+      nor = new Float32Array(nAttr.count * 3);
+      const nm = new THREE.Matrix3().getNormalMatrix(p.mesh.matrixWorld);
+      for (let i = 0; i < nAttr.count; i++) {
+        v.fromBufferAttribute(nAttr, i).applyMatrix3(nm).normalize();
+        nor[i * 3] = v.x;
+        nor[i * 3 + 1] = v.y;
+        nor[i * 3 + 2] = v.z;
+      }
+    }
+    const m = prepararMalla(pos, espejo, nor);
     this.mallasNorm.set(id, m);
     return m;
   }
 
   /** Pinta zonas en varios huesos (null = borrar). Devuelve el centro de lo pintado. */
+  private cajaPintada = new THREE.Box3();
   pintarZonas(zonas: Map<string, Zona[]> | null): THREE.Vector3 | null {
     for (const id of this.pintados) this.piezas.get(id)?.mesh.geometry.deleteAttribute('parte');
     this.pintados.clear();
     if (!zonas) return null;
     const suma = new THREE.Vector3();
     let n = 0;
+    this.cajaPintada.makeEmpty();
     for (const [id, zs] of zonas) {
       const m = this.mallaNorm(id);
       const p = this.piezas.get(id);
@@ -350,6 +365,7 @@ export class Visor {
       const w = pesos(m, zs);
       p.mesh.geometry.setAttribute('parte', new THREE.BufferAttribute(w, 1));
       this.pintados.add(id);
+      for (let i = 0; i < w.length; i++) if (w[i] > 0.5) this.cajaPintada.expandByPoint(new THREE.Vector3(m.pos[i * 3], m.pos[i * 3 + 1], m.pos[i * 3 + 2]));
       const c = centroPintado(m, w);
       if (c) {
         suma.add(new THREE.Vector3(...c));
@@ -378,12 +394,22 @@ export class Visor {
     }
     const esfera = caja.getBoundingSphere(new THREE.Sphere());
     let d: THREE.Vector3;
-    if (dir) d = new THREE.Vector3(...dir);
+    if (dir) {
+      d = new THREE.Vector3(...dir);
+      // las direcciones se escriben para el lado derecho: en huesos izquierdos, espejo
+      if (this.mallaNorm(ids[0])?.espejo) d.x = -d.x;
+    }
     else if (centro && centro.distanceTo(esfera.center) > esfera.radius * 0.15) {
       // desde el lado de la parte, algo en diagonal para dar volumen
       d = centro.clone().sub(esfera.center).normalize().add(new THREE.Vector3(0.25, 0.3, 0.25));
     } else d = new THREE.Vector3(0.35, 0.5, 1);
-    this.encuadrar(esfera, d.normalize(), 1.15, true);
+    // parte pequeña (p. ej. un tubérculo en una costilla larga): acercarse a ella
+    let mirar = esfera;
+    if (centro && !this.cajaPintada.isEmpty()) {
+      const rp = this.cajaPintada.getBoundingSphere(new THREE.Sphere()).radius;
+      if (rp < esfera.radius * 0.3) mirar = new THREE.Sphere(this.cajaPintada.getCenter(new THREE.Vector3()), Math.max(rp * 2.5, esfera.radius * 0.55));
+    }
+    this.encuadrar(mirar, d.normalize(), 1.15, true);
   }
 
   /** Zona alrededor de un hueso para verlo "en conjunto": su grupo en el mismo lado, con margen. */
