@@ -12,6 +12,7 @@ export const MODOS: Record<Modo, string> = {
 
 export interface Tarjeta {
   clave: string;
+  /** id de la pregunta: un hueso, un tipo (T:…) o una pareja (P:…) */
   hueso: string;
   modo: Modo;
 }
@@ -58,7 +59,10 @@ function cargar(): Guardado {
       if (e.card.last_review) e.card.last_review = new Date(e.card.last_review);
     }
     const ajustes = { ...base.ajustes, ...g.ajustes };
-    if (!ajustes.regiones?.length) ajustes.regiones = base.ajustes.regiones;
+    // versiones antiguas tenían la región "mano" (ahora es parte del miembro superior)
+    const validas = new Set(REGIONES.map((r) => r.id as string));
+    ajustes.regiones = [...new Set((ajustes.regiones ?? []).map((r) => ((r as string) === 'mano' ? 'superior' : r)))].filter((r) => validas.has(r));
+    if (!ajustes.regiones.length) ajustes.regiones = base.ajustes.regiones;
     return { ...base, ...g, ajustes };
   } catch {
     return base;
@@ -82,9 +86,13 @@ export function cambiarAjustes(a: Partial<Ajustes>) {
 
 function todasLasTarjetas(): Tarjeta[] {
   const a = datos.ajustes;
-  return HUESOS.filter((h) => a.regiones.includes(h.region)).flatMap((h) =>
-    a.modos.map((modo) => ({ clave: `${h.id}:${modo}`, hueso: h.id, modo })),
-  );
+  const hs = HUESOS.filter((h) => a.regiones.includes(h.region));
+  return a.modos.flatMap((modo) => {
+    // hueso aislado: una tarjeta por tipo/pareja (sin repetidos)
+    // en conjunto: una por hueso · localizar: una por hueso, salvo vértebras/costillas (por tipo)
+    const ids = new Set(hs.map((h) => (modo === 'conjunto' ? h.id : modo === 'aislado' ? (h.tipo ?? h.par ?? h.id) : (h.tipo ?? h.id))));
+    return [...ids].map((id) => ({ clave: `${id}:${modo}`, hueso: id, modo }));
+  });
 }
 
 export const nivelDe = (t: Tarjeta) => datos.estados[t.clave]?.nivel ?? 0;

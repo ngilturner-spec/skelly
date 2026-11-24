@@ -1,7 +1,7 @@
 // Visor 3D: carga las regiones, aplica estilos y muestra huesos según el modo.
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
+import { Controles } from './controles';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { HUESOS, huesoPorId, REGIONES, type RegionId } from './data/huesos';
@@ -107,7 +107,7 @@ export class Visor {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(35, 1, 0.005, 200);
-  private controls: TrackballControls;
+  private controls: Controles;
   private piezas = new Map<string, Pieza>();
   private estilo: Estilo = 'realista';
   private envMap: THREE.Texture;
@@ -115,7 +115,12 @@ export class Visor {
   private contraluz: THREE.DirectionalLight;
   private rampa = rampaToon();
   private vista: Vista = 'todos';
-  private region: RegionId = 'mano';
+  private region: RegionId = REGIONES[0].id;
+  /** true = se ve el esqueleto entero; false = solo la región del hueso */
+  private completo = false;
+  private claveVista = '';
+  private esferaCompleta = new THREE.Sphere();
+  private encuadreBase: [THREE.Sphere, THREE.Vector3, number] | null = null;
   private objetivo: string | null = null;
   private marcas = new Map<string, THREE.Color>();
   private hover: string | null = null;
@@ -135,9 +140,14 @@ export class Visor {
 
   /** Espacio que tapa el panel (px), para centrar el modelo en la zona libre. */
   setMargen(derecha: number, abajo: number) {
+    if (derecha === this.margen.derecha && abajo === this.margen.abajo) return;
     this.margen = { derecha, abajo };
     this.redimensionar();
+    // el hueco libre ha cambiado: reencuadrar si no has movido tú la vista
+    if (!this.tocado) this.restablecerVista();
   }
+  /** true si has girado/movido la cámara desde el último encuadre */
+  private tocado = false;
 
   /** Se llama al pinchar un hueso (solo si clicable = true). */
   onClick: ((id: string) => void) | null = null;
@@ -171,12 +181,7 @@ export class Visor {
     this.contraluz.target.position.set(0, 0, -5);
     this.scene.add(this.camera);
 
-    this.controls = new TrackballControls(this.camera, this.renderer.domElement);
-    this.controls.rotateSpeed = 3.2;
-    this.controls.zoomSpeed = 1.4;
-    this.controls.panSpeed = 0.8;
-    this.controls.staticMoving = false;
-    this.controls.dynamicDampingFactor = 0.14;
+    this.controls = new Controles(this.camera, this.renderer.domElement);
 
     new ResizeObserver(() => this.redimensionar()).observe(contenedor);
     this.eventos();
@@ -207,8 +212,16 @@ export class Visor {
         this.esferasRegion.set(r.id, s);
       }),
     );
+    const caja = new THREE.Box3();
+    for (const p of this.piezas.values()) caja.expandByObject(p.mesh);
+    caja.getBoundingSphere(this.esferaCompleta);
     this.setEstilo(this.estilo);
     this.mostrarTodos(this.region);
+  }
+
+  /** Vuelve a la vista inicial de la tarjeta o región actual. */
+  restablecerVista() {
+    if (this.encuadreBase) this.encuadrar(...this.encuadreBase, true);
   }
 
   setEstilo(e: Estilo) {
@@ -230,32 +243,64 @@ export class Visor {
     this.actualizarMateriales();
     // vista desde un ángulo aleatorio para no memorizar "la foto"
     const dir = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 1.4 - 0.7, Math.random() * 2 - 1).normalize();
-    this.encuadrar(p.esfera, dir, 1.2);
+    this.encuadrar(p.esfera, dir, 1.2, true);
   }
 
-  mostrarConjunto(id: string) {
+  /** completo = enseñar todo el esqueleto (si no, solo la región del hueso). */
+  mostrarConjunto(id: string, completo = false) {
     const p = this.piezas.get(id)!;
     this.vista = 'conjunto';
+    this.completo = completo;
     this.region = p.region;
     this.objetivo = id;
     this.marcas.clear();
     this.actualizarMateriales();
     // mirar desde delante o detrás, algo girado hacia el lado del hueso
-    const c = this.esferasRegion.get(p.region)!;
+    const c = this.zona(id);
     const lado = p.esfera.center.clone().sub(c.center);
     const dir = new THREE.Vector3(lado.x * 0.6 + (Math.random() - 0.5) * 0.5, 0.12, Math.random() < 0.5 ? 1 : -1).normalize();
-    this.encuadrar(c, dir, 1.12);
+    this.encuadrar(c, dir, 1.12, true);
   }
 
-  mostrarTodos(region: RegionId, enfocar = true) {
-    if (region !== this.region) enfocar = true; // otra región: siempre reencuadrar
+  /**
+   * Muestra una región entera, o todo el esqueleto con 'completo'.
+   * verTodo: enseña todo el esqueleto pero encuadra la región.
+   */
+  mostrarTodos(region: RegionId | 'completo', enfocar = true, verTodo = false) {
+    const completo = region === 'completo' || verTodo;
+    const r = region === 'completo' ? this.region : region;
+    const clave = `${region}|${completo}`;
+    if (clave !== this.claveVista || this.vista !== 'todos') enfocar = true;
+    this.claveVista = clave;
     this.vista = 'todos';
-    this.region = region;
+    this.completo = completo;
+    this.region = r;
     this.objetivo = null;
     this.marcas.clear();
     this.actualizarMateriales();
-    const s = this.esferasRegion.get(region);
-    if (enfocar && s) this.encuadrar(s, new THREE.Vector3(0.12, 0.08, 1).normalize(), 1.12);
+    const esfera = region === 'completo' ? this.esferaCompleta : this.esferasRegion.get(r) ?? this.esferaCompleta;
+    if (enfocar) this.encuadrar(esfera, new THREE.Vector3(0.12, 0.08, 1).normalize(), 1.08, true);
+  }
+
+  /** Zona alrededor de un hueso para verlo "en conjunto": su grupo en el mismo lado, con margen. */
+  private zona(id: string): THREE.Sphere {
+    const p = this.piezas.get(id)!;
+    const h = huesoPorId.get(id);
+    const medio = this.esferaCompleta.center.x;
+    const lado = (x: number) => (Math.abs(x - medio) < 0.35 ? 0 : Math.sign(x - medio));
+    const ladoP = lado(p.esfera.center.x);
+    const caja = new THREE.Box3();
+    for (const q of this.piezas.values()) {
+      const hq = huesoPorId.get(q.id);
+      if (!hq || !h || hq.grupo !== h.grupo) continue;
+      const l = lado(q.esfera.center.x);
+      if (ladoP !== 0 && l !== 0 && l !== ladoP) continue;
+      caja.expandByObject(q.mesh);
+    }
+    caja.expandByObject(p.mesh);
+    const s = caja.getBoundingSphere(new THREE.Sphere());
+    s.radius = Math.max(s.radius * 1.6, p.esfera.radius * 3);
+    return s;
   }
 
   /** Colorea huesos (acierto/error/resalte) sin cambiar la vista. */
@@ -308,7 +353,7 @@ export class Visor {
 
   private actualizarMateriales() {
     for (const p of this.piezas.values()) {
-      const visible = p.region === this.region && (this.vista !== 'aislado' || p.id === this.objetivo);
+      const visible = this.vista === 'aislado' ? p.id === this.objetivo : this.completo || p.region === this.region;
       p.mesh.visible = visible;
       if (!visible) continue;
       const m = this.materialBase(p);
@@ -339,8 +384,14 @@ export class Visor {
   // ---------- cámara ----------
   private ultimoEncuadre: [THREE.Sphere, THREE.Vector3, number] | null = null;
 
-  private encuadrar(esfera: THREE.Sphere, dir: THREE.Vector3, margen: number) {
+  private encuadrar(esfera: THREE.Sphere, dir: THREE.Vector3, margen: number, base = false) {
     this.ultimoEncuadre = [esfera, dir.clone(), margen];
+    if (base) {
+      this.tocado = false;
+      this.encuadreBase = [esfera, dir.clone(), margen];
+      // el punto de mira no puede salir de lo que se está viendo
+      this.controls.limitePan.copy(esfera);
+    }
     if (!this.contenedor.clientWidth || !this.contenedor.clientHeight) return; // se hará al tener tamaño
     const fov = THREE.MathUtils.degToRad(this.camera.fov);
     // que quepa tanto en alto como en ancho
@@ -351,6 +402,7 @@ export class Visor {
     const fovV = 2 * Math.atan(Math.tan(fov / 2) * (libreH / (h + this.margen.abajo)));
     const fovH = 2 * Math.atan(Math.tan(fov / 2) * (libreW / (h + this.margen.abajo)));
     const dist = (esfera.radius * margen) / Math.sin(Math.min(fovV, fovH) / 2);
+    this.controls.parar();
     this.camaraAnim = {
       desde: this.camera.position.clone(),
       hasta: esfera.center.clone().addScaledVector(dir, dist),
@@ -381,7 +433,10 @@ export class Visor {
       this.controls.target.lerpVectors(a.tDesde, a.tHasta, k);
       this.camera.up.lerpVectors(a.upDesde, new THREE.Vector3(0, 1, 0), k).normalize();
       this.camera.lookAt(this.controls.target);
-      if (a.t >= 1) this.camaraAnim = null;
+      if (a.t >= 1) {
+        this.camaraAnim = null;
+        this.controls.sincronizar();
+      }
     } else {
       this.controls.update();
     }
@@ -398,7 +453,6 @@ export class Visor {
     this.camera.aspect = (w + d) / (h + a);
     this.camera.setViewOffset(w + d, h + a, d, a, w, h);
     this.camera.updateProjectionMatrix();
-    this.controls.handleResize();
     if (eraInvisible && this.ultimoEncuadre) this.encuadrar(...this.ultimoEncuadre);
   }
 
@@ -415,9 +469,14 @@ export class Visor {
   private eventos() {
     const el = this.renderer.domElement;
     let inicio: { x: number; y: number } | null = null;
+    el.addEventListener('wheel', () => (this.tocado = true), { passive: true });
     el.addEventListener('pointerdown', (e) => {
+      this.tocado = true;
       inicio = { x: e.clientX, y: e.clientY };
-      this.camaraAnim = null; // si tocas, mandas tú
+      if (this.camaraAnim) {
+        this.camaraAnim = null; // si tocas, mandas tú
+        this.controls.sincronizar();
+      }
     });
     el.addEventListener('pointerup', (e) => {
       if (!inicio || !this.clicable) return;

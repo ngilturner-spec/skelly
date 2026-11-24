@@ -153,6 +153,28 @@ select option {
   background: #16141e;
 }
 
+/* ---------- botón restablecer vista ---------- */
+#restablecer {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  color: var(--texto, #eee);
+  cursor: pointer;
+  z-index: 2;
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+#restablecer:hover {
+  color: #9b7bff;
+}
+#restablecer:active {
+  transform: scale(0.92);
+}
+
 /* ---------- panel ---------- */
 #panel {
   position: fixed;
@@ -207,6 +229,13 @@ select option {
   }
   .ocultar-movil {
     display: none !important;
+  }
+  #restablecer {
+    top: 66px;
+    bottom: auto;
+    left: 8px;
+    width: 42px;
+    height: 42px;
   }
 }
 
@@ -293,7 +322,8 @@ h3 {
 }
 
 .racha .fuego {
-  font-size: 1.6rem;
+  display: grid;
+  color: #9b7bff;
 }
 
 .racha b {
@@ -651,4 +681,37 @@ input[type='number'] {
   color: var(--suave);
   cursor: pointer;
   padding: 0;
+}
+
+/* ---------- lista de partes ---------- */
+.lista-partes {
+  display: grid;
+  gap: 6px;
+}
+.lista-partes .fila {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radio-sm);
+  border: 1px solid var(--cristal-borde);
+  background: rgba(255, 255, 255, 0.03);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lista-partes .fila small {
+  color: var(--tenue);
+  white-space: nowrap;
+}
+.lista-partes .fila.activo {
+  border-color: #9b7bff;
+  background: rgba(155, 123, 255, 0.14);
+}
+@media (max-width: 420px) {
+  #barra .logo {
+    display: none;
+  }
 }

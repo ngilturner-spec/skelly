@@ -1,5 +1,5 @@
 // Comprobar respuestas escritas y generar pistas de letras.
-import { HUESOS, type Hueso } from './data/huesos';
+import { PREGUNTAS, huesoPorId, type Pregunta } from './data/huesos';
 import { nombreDe } from './i18n';
 
 const PALABRAS_VACIAS = new Set(['hueso', 'dedo', 'de', 'del', 'la', 'el', 'los', 'las', 'of', 'the', 'bone']);
@@ -14,6 +14,8 @@ export function normalizar(s: string): string {
     .replace(/[^a-z0-9 ]/g, ' ')
     .split(/\s+/)
     .filter((w) => w && !PALABRAS_VACIAS.has(w))
+    // "derecho" y "derecha" valen igual (falange del pulgar derecho / derecha)
+    .map((w) => (w === 'derecha' ? 'derecho' : w === 'izquierda' ? 'izquierdo' : w))
     .join(' ');
 }
 
@@ -37,15 +39,28 @@ function tolerancia(len: number): number {
   return 2;
 }
 
-const formas = (h: Hueso) => {
+const propias = (h: Pregunta) => {
   const n = nombreDe(h);
   return [n.nombre, ...n.sinonimos];
 };
-const distanciaA = (h: Hueso, resp: string) => Math.min(...formas(h).map((n) => levenshtein(normalizar(n), resp)));
+/** Lo que vale como respuesta: el nombre, sus sinónimos y, si agrupa varios huesos, los nombres de cada uno. */
+const formas = (h: Pregunta) => (h.miembros.length > 1 || h.miembros[0] !== h.id ? [...propias(h), ...h.miembros.flatMap((m) => propias(huesoPorId.get(m)!))] : propias(h));
+const distanciaA = (h: Pregunta, resp: string) => Math.min(...formas(h).map((n) => levenshtein(normalizar(n), resp)));
+
+/** Preguntas emparentadas con el objetivo (sus huesos, su tipo, su pareja): no cuentan como "otro hueso". */
+function emparentadas(h: Pregunta): Set<string> {
+  const ids = new Set([h.id, ...h.miembros]);
+  for (const m of h.miembros) {
+    const b = huesoPorId.get(m);
+    if (b?.tipo) ids.add(b.tipo);
+    if (b?.par) ids.add(b.par);
+  }
+  return ids;
+}
 
 export type Resultado = 'exacto' | 'errata' | 'sinLado' | 'mal';
 
-export function comprobar(objetivo: Hueso, respuesta: string): Resultado {
+export function comprobar(objetivo: Pregunta, respuesta: string): Resultado {
   const r = normalizar(respuesta);
   if (!r) return 'mal';
   const d = distanciaA(objetivo, r);
@@ -61,14 +76,15 @@ export function comprobar(objetivo: Hueso, respuesta: string): Resultado {
     return 'mal';
   }
   // Si la respuesta se parece igual o más a OTRO hueso, no la damos por buena.
-  for (const h of HUESOS) {
-    if (h.id !== objetivo.id && distanciaA(h, r) <= d) return 'mal';
+  const familia = emparentadas(objetivo);
+  for (const h of PREGUNTAS) {
+    if (!familia.has(h.id) && Math.min(...propias(h).map((n) => levenshtein(normalizar(n), r))) <= d) return 'mal';
   }
   return 'errata';
 }
 
 /** Mejor resultado entre varias formas de leer lo escrito. */
-export function comprobarVarias(objetivo: Hueso, respuestas: string[]): Resultado {
+export function comprobarVarias(objetivo: Pregunta, respuestas: string[]): Resultado {
   const orden: Resultado[] = ['exacto', 'errata', 'sinLado', 'mal'];
   return respuestas.map((r) => comprobar(objetivo, r)).sort((a, b) => orden.indexOf(a) - orden.indexOf(b))[0] ?? 'mal';
 }

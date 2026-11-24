@@ -1,6 +1,5 @@
 // Idioma de la app y nombres de huesos (con los cambios que hagas en el editor).
-import { HUESOS, type Hueso } from './data/huesos';
-import { INGLES } from './data/ingles';
+import { PREGUNTAS, type Pregunta } from './data/huesos';
 
 export type Idioma = 'es' | 'en';
 const CLAVE_IDIOMA = 'skelly-idioma';
@@ -23,20 +22,19 @@ interface Nombre {
 type Cambios = Record<string, Partial<Record<Idioma, Nombre>>>;
 let cambios: Cambios = JSON.parse(localStorage.getItem(CLAVE_NOMBRES) || '{}');
 
-function original(h: Hueso, i: Idioma): Nombre {
+function original(h: Pregunta, i: Idioma): Nombre {
   if (i === 'es') return { nombre: h.nombre, sinonimos: h.sinonimos };
-  const en = INGLES[h.id];
-  return en ? { nombre: en[0], sinonimos: en[1] } : { nombre: h.nombre, sinonimos: h.sinonimos };
+  return { nombre: h.en[0], sinonimos: h.en[1] };
 }
 
-export function nombreDe(h: Hueso, i: Idioma = actual): Nombre {
+export function nombreDe(h: Pregunta, i: Idioma = actual): Nombre {
   return cambios[h.id]?.[i] ?? original(h, i);
 }
-export const nombre = (h: Hueso) => nombreDe(h).nombre;
-export const sinonimos = (h: Hueso) => nombreDe(h).sinonimos;
-export const esEditado = (h: Hueso, i: Idioma = actual) => !!cambios[h.id]?.[i];
+export const nombre = (h: Pregunta) => nombreDe(h).nombre;
+export const sinonimos = (h: Pregunta) => nombreDe(h).sinonimos;
+export const esEditado = (h: Pregunta, i: Idioma = actual) => !!cambios[h.id]?.[i];
 
-export function guardarNombre(h: Hueso, n: Nombre, i: Idioma = actual) {
+export function guardarNombre(h: Pregunta, n: Nombre, i: Idioma = actual) {
   const limpio = { nombre: n.nombre.trim(), sinonimos: n.sinonimos.map((s) => s.trim()).filter(Boolean) };
   const o = original(h, i);
   const igual = limpio.nombre === o.nombre && limpio.sinonimos.join('|') === o.sinonimos.join('|');
@@ -51,7 +49,7 @@ export function restaurarNombres() {
   localStorage.removeItem(CLAVE_NOMBRES);
 }
 
-export const huesosEditados = () => HUESOS.filter((h) => esEditado(h)).length;
+export const huesosEditados = () => PREGUNTAS.filter((h) => esEditado(h)).length;
 
 // ---------- textos de la interfaz ----------
 const ES = {
@@ -59,7 +57,7 @@ const ES = {
   estudiar: 'Estudiar',
   explorar: 'Explorar',
   ajustes: 'Ajustes',
-  hola: 'Hola 👋',
+  hola: 'Hola',
   racha: 'días seguidos',
   rachaUno: 'día seguido',
   paraHoy: 'Para hoy',
@@ -74,7 +72,15 @@ const ES = {
   ultimos14: 'Últimos 14 días',
   aciertos: 'aciertos (30 días)',
   sinDatos: 'Aún no hay datos. ¡Empieza tu primera sesión!',
-  todas: 'Todas',
+  todas: 'Esqueleto completo',
+  todos: 'Todos',
+  tipoDe: 'Tipo',
+  partes: 'Partes',
+  partesTitulo: 'Partes de cada hueso',
+  partesAyuda: 'Aquí irán las partes de cada hueso (cabeza, cuello, apófisis…). Aún está en construcción.',
+  sinPartes: 'Aún no hay partes para este hueso.',
+  sinPartesCorto: 'aún sin partes',
+  partesN: 'partes',
   mezcla: 'Mezcla',
   aislado: 'Hueso aislado',
   conjunto: 'En conjunto',
@@ -142,7 +148,7 @@ const EN: Textos = {
   estudiar: 'Study',
   explorar: 'Explore',
   ajustes: 'Settings',
-  hola: 'Hi 👋',
+  hola: 'Hi',
   racha: 'day streak',
   rachaUno: 'day streak',
   paraHoy: 'Today',
@@ -157,7 +163,15 @@ const EN: Textos = {
   ultimos14: 'Last 14 days',
   aciertos: 'correct (30 days)',
   sinDatos: 'No data yet. Start your first session!',
-  todas: 'All',
+  todas: 'Full skeleton',
+  todos: 'All',
+  tipoDe: 'Type',
+  partes: 'Parts',
+  partesTitulo: 'Parts of each bone',
+  partesAyuda: 'The parts of each bone (head, neck, processes…) will go here. Still under construction.',
+  sinPartes: 'No parts for this bone yet.',
+  sinPartesCorto: 'no parts yet',
+  partesN: 'parts',
   mezcla: 'Mixed',
   aislado: 'Single bone',
   conjunto: 'In context',
@@ -222,7 +236,16 @@ const EN: Textos = {
 const GRUPOS_EN: Record<string, string> = {
   carpo: 'Carpals',
   metacarpo: 'Metacarpals',
-  falanges: 'Phalanges',
+  falanges: 'Phalanges of the hand',
+  neurocraneo: 'Neurocranium',
+  viscerocraneo: 'Viscerocranium',
+  cinturaEscapular: 'Shoulder girdle',
+  brazo: 'Arm and forearm',
+  pelvis: 'Pelvic girdle',
+  pierna: 'Thigh and leg',
+  tarso: 'Tarsals',
+  metatarso: 'Metatarsals',
+  falangesPie: 'Phalanges of the foot',
   cervicales: 'Cervical vertebrae',
   toracicas: 'Thoracic vertebrae',
   lumbares: 'Lumbar vertebrae',
@@ -230,7 +253,7 @@ const GRUPOS_EN: Record<string, string> = {
   esternon: 'Sternum',
   costillas: 'Ribs',
 };
-const REGIONES_EN: Record<string, string> = { mano: 'Hand', tronco: 'Spine and thorax' };
+const REGIONES_EN: Record<string, string> = { cabeza: 'Head', tronco: 'Spine and thorax', superior: 'Upper limb', inferior: 'Lower limb' };
 
 export const t = (k: keyof Textos) => (actual === 'en' ? EN : ES)[k];
 export const tGrupo = (id: string, es: string) => (actual === 'en' ? GRUPOS_EN[id] ?? es : es);

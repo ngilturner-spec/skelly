@@ -3,7 +3,9 @@
 App para aprender los huesos en 3D con repetición espaciada (FSRS) y pistas de letras que van desapareciendo.
 
 - Instalable en el móvil (PWA) y funciona sin conexión.
-- Regiones: mano, columna y tórax.
+- Esqueleto completo: cabeza, columna y tórax, miembro superior y miembro inferior.
+- Vértebras y costillas se preguntan por tipo (cervical, costilla verdadera derecha…).
+- Sección de partes de cada hueso (en construcción, `src/data/partes.ts`).
 - Modos: hueso aislado, en conjunto y localizar.
 
 ## Desarrollo

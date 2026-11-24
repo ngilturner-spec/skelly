@@ -2,23 +2,42 @@ import '@fontsource-variable/lexend';
 import './style.css';
 import { Rating, type Grade } from 'ts-fsrs';
 import { Visor } from './viewer';
-import { GRUPOS, HUESOS, REGIONES, huesoPorId, type Grupo, type RegionId } from './data/huesos';
+import { GRUPOS, HUESOS, AGRUPADAS, REGIONES, huesoPorId, preguntaPorId, type Grupo, type Pregunta, type RegionId } from './data/huesos';
 import { comprobarVarias, pista, type Resultado } from './answer';
 import { t, tGrupo, tRegion, idioma, cambiarIdioma, nombre, sinonimos, nombreDe, guardarNombre, esEditado, restaurarNombres, huesosEditados, type Idioma } from './i18n';
 import { sonidoAcierto, sonidoFallo } from './sonido';
 import * as srs from './srs';
+import { PARTES } from './data/partes';
 import type { Estilo, Modo, Tarjeta } from './srs';
 
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const barra = document.querySelector<HTMLElement>('#barra')!;
 const visor = new Visor(document.querySelector<HTMLElement>('#visor')!);
 
-type Pantalla = 'inicio' | 'estudio' | 'explorar' | 'ajustes' | 'editor';
+type Pantalla = 'inicio' | 'estudio' | 'explorar' | 'partes' | 'ajustes' | 'editor';
 let pantalla: Pantalla = 'inicio';
 let teclas: ((e: KeyboardEvent) => void) | null = null;
 let huesoAnterior: string | undefined;
 let sesion = { objetivo: 1, hechas: 0 };
-let regionVista: RegionId = srs.ajustes().regiones[0] ?? 'mano';
+/** región que se ve en Explorar / editor ('completo' = todo el esqueleto) */
+type Vista = RegionId | 'completo';
+let regionVista: Vista = 'completo';
+/** hueso 3D que se enseña en la tarjeta actual (en tipos y parejas, uno al azar) */
+let mostrado = '';
+const esCompleto = () => srs.ajustes().regiones.length === REGIONES.length;
+/** vista general según las regiones elegidas */
+const vistaEstudio = (): Vista => (esCompleto() ? 'completo' : srs.ajustes().regiones[0]);
+const azar = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
+/** Lo que hay que responder. En conjunto, las vértebras y costillas se responden con su tipo. */
+function preguntaDe(tj: Tarjeta): Pregunta {
+  const p = preguntaPorId.get(tj.hueso)!;
+  const b = huesoPorId.get(tj.hueso);
+  if (tj.modo === 'conjunto' && b?.tipo) return preguntaPorId.get(b.tipo)!;
+  return p;
+}
+const chipsVista = (activa: Vista) =>
+  `<div class="chips"><button class="chip ${activa === 'completo' ? 'activo' : ''}" data-reg="completo">${t('todas')}</button>${REGIONES.map((r) => `<button class="chip ${activa === r.id ? 'activo' : ''}" data-reg="${r.id}">${nombreRegion(r.id)}</button>`).join('')}</div>`;
+const deVista = (v: Vista) => (v === 'completo' ? HUESOS : HUESOS.filter((x) => x.region === v));
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 const mayus = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -28,7 +47,7 @@ const h = (html: string) => {
 };
 const $ = <T extends HTMLElement>(sel: string) => panel.querySelector<T>(sel)!;
 const todos = <T extends HTMLElement>(sel: string, raiz: ParentNode = panel) => [...raiz.querySelectorAll<T>(sel)];
-const nombreRegion = (id: RegionId) => tRegion(id, REGIONES.find((r) => r.id === id)!.nombre);
+const nombreRegion = (id: RegionId): string => tRegion(id, REGIONES.find((r) => r.id === id)!.nombre);
 const nombreGrupo = (g: Grupo) => tGrupo(g, GRUPOS[g]);
 const MODOS_T: Record<Modo, () => string> = { aislado: () => t('aislado'), conjunto: () => t('conjunto'), localizar: () => t('localizar') };
 
@@ -43,6 +62,7 @@ new ResizeObserver(() => {
   else visor.setMargen(0, window.innerHeight - r.top);
 }).observe(panel);
 document.addEventListener('keydown', (e) => teclas?.(e));
+document.querySelector('#restablecer')!.addEventListener('click', () => visor.restablecerVista());
 
 // ================= BARRA SUPERIOR =================
 function pintarBarra() {
@@ -81,6 +101,7 @@ function pintarBarra() {
   const pest: [Pantalla, string][] = [
     ['inicio', t('inicio')],
     ['explorar', t('explorar')],
+    ['partes', t('partes')],
     ['ajustes', t('ajustes')],
   ];
   barra.innerHTML = `
@@ -99,6 +120,7 @@ function ir(p: Pantalla) {
   if (p === 'inicio') inicio();
   else if (p === 'estudio') siguienteTarjeta();
   else if (p === 'explorar') explorar();
+  else if (p === 'partes') partesUI();
   else if (p === 'ajustes') ajustesUI();
   else editor();
 }
@@ -106,7 +128,7 @@ function ir(p: Pantalla) {
 // ================= INICIO =================
 function inicio() {
   const a = srs.ajustes();
-  visor.mostrarTodos(a.regiones[0] ?? 'mano');
+  visor.mostrarTodos(vistaEstudio());
   const c = srs.contadores();
   const r = srs.racha();
   const dias = srs.ultimosDias(14);
@@ -115,7 +137,7 @@ function inicio() {
   const hayAlgo = c.pendientes + c.nuevasHoy > 0;
   h(`
     <h1>${t('hola')}</h1>
-    <div class="racha"><span class="fuego">🔥</span><div><b>${r}</b> ${r === 1 ? t('rachaUno') : t('racha')}</div></div>
+    <div class="racha"><span class="fuego"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M12 2c1 3.5 5 5.5 5 11a5 5 0 0 1-10 0c0-2.5 1.2-4 2.5-5 .2 1.6.9 2.6 2 3C11 8 11 5 12 2z"/></svg></span><div><b>${r}</b> ${r === 1 ? t('rachaUno') : t('racha')}</div></div>
     <h3>${t('paraHoy')}</h3>
     <div class="cifras">
       <div class="cifra"><b>${c.nuevasHoy}</b><span>${t('nuevas')}</span></div>
@@ -170,7 +192,7 @@ function empezarSesion() {
 
 // ================= ESTUDIO =================
 function etiquetaDe(tj: Tarjeta) {
-  const hb = huesoPorId.get(tj.hueso)!;
+  const hb = preguntaPorId.get(tj.hueso)!;
   return `<div class="etiqueta">${MODOS_T[tj.modo]()} · ${nombreGrupo(hb.grupo)}${srs.esNueva(tj) ? ` <span class="insignia">${t('nueva')}</span>` : ''}</div>`;
 }
 
@@ -179,12 +201,13 @@ function siguienteTarjeta() {
   const tj = srs.siguiente(huesoAnterior);
   if (!tj) return terminado();
   huesoAnterior = tj.hueso;
-  const hb = huesoPorId.get(tj.hueso)!;
+  const hb = preguntaDe(tj);
   const etiqueta = etiquetaDe(tj);
 
   if (tj.modo === 'localizar') return tarjetaLocalizar(tj, etiqueta);
-  if (tj.modo === 'aislado') visor.mostrarAislado(tj.hueso);
-  else visor.mostrarConjunto(tj.hueso);
+  mostrado = tj.modo === 'conjunto' ? tj.hueso : azar(hb.miembros);
+  if (tj.modo === 'aislado') visor.mostrarAislado(mostrado);
+  else visor.mostrarConjunto(mostrado, esCompleto());
 
   const n = nombre(hb);
   const p = pista(n, srs.nivelDe(tj));
@@ -279,12 +302,12 @@ function cajaResultado(r: Resultado, correcto: string, respuesta: string) {
 }
 
 function corregir(tj: Tarjeta, respuestas: string[], etiqueta: string) {
-  const hb = huesoPorId.get(tj.hueso)!;
+  const hb = preguntaDe(tj);
   const r = respuestas.length ? comprobarVarias(hb, respuestas) : 'mal';
   const acierto = r === 'exacto' || r === 'errata';
   const casi = r === 'sinLado';
   sonar(acierto);
-  visor.marcar(tj.hueso, acierto ? 'acierto' : 'error');
+  visor.marcar(mostrado, acierto ? 'acierto' : 'error');
   h(`${etiqueta}${cajaResultado(r, nombre(hb), respuestas[0] ?? '')}${botonesNota(tj, acierto, casi)}${sinonimosHtml(sinonimos(hb), nombre(hb))}`);
   conectarNotas(tj, acierto, casi);
 }
@@ -344,8 +367,8 @@ function conectarNotas(tj: Tarjeta, acierto: boolean, casi = false) {
 }
 
 function tarjetaLocalizar(tj: Tarjeta, etiqueta: string) {
-  const hb = huesoPorId.get(tj.hueso)!;
-  visor.mostrarTodos(hb.region);
+  const hb = preguntaDe(tj);
+  visor.mostrarTodos(hb.region, true, esCompleto());
   visor.clicable = true;
   h(`
     ${etiqueta}
@@ -356,10 +379,12 @@ function tarjetaLocalizar(tj: Tarjeta, etiqueta: string) {
   const resolver = (elegido: string | null) => {
     visor.clicable = false;
     visor.quitarHover();
-    const ok = elegido === tj.hueso;
+    // en tipos (vértebra cervical…) vale cualquiera de ellas
+    const ok = !!elegido && hb.miembros.includes(elegido);
     sonar(ok);
     if (elegido && !ok) visor.marcar(elegido, 'error');
-    visor.marcar(tj.hueso, ok ? 'acierto' : 'resalte');
+    if (ok) visor.marcar(elegido!, 'acierto');
+    else hb.miembros.forEach((m) => visor.marcar(m, 'resalte'));
     const caja = ok
       ? `<div class="resultado bien">✓ ${t('correcto')}<span class="correcto">${esc(mayus(nombre(hb)))}</span></div>`
       : `<div class="resultado mal">${elegido ? `${t('eseEs')} <b>${esc(nombre(huesoPorId.get(elegido)!))}</b>. ` : ''}<b>${esc(mayus(nombre(hb)))}</b> ${t('estaEn')}</div>`;
@@ -373,10 +398,10 @@ function tarjetaLocalizar(tj: Tarjeta, etiqueta: string) {
 function terminado() {
   sesion.hechas = sesion.objetivo;
   pintarBarra();
-  visor.mostrarTodos(srs.ajustes().regiones[0] ?? 'mano');
+  visor.mostrarTodos(vistaEstudio());
   const c = srs.contadores();
   h(`
-    <h1>🎉 ${t('hecho')}</h1>
+    <h1>${t('hecho')}</h1>
     <p class="ayuda">${t('hechoTexto')}</p>
     ${c.sinVer ? `<div class="botones"><button class="btn principal" id="mas">${t('estudiarMas')}</button></div>` : ''}
     <div class="botones"><button class="btn" id="volver">${t('volver')}</button></div>`);
@@ -395,11 +420,11 @@ function explorar() {
   visor.clicable = true;
   const pintar = (id: string | null) => {
     const hb = id ? huesoPorId.get(id)! : null;
-    const grupos = [...new Set(HUESOS.filter((x) => x.region === regionVista).map((x) => x.grupo))];
-    const lista = HUESOS.filter((x) => x.region === regionVista && (filtroExplorar === 'todos' || x.grupo === filtroExplorar));
+    const grupos = [...new Set(deVista(regionVista).map((x) => x.grupo))];
+    const lista = deVista(regionVista).filter((x) => filtroExplorar === 'todos' || x.grupo === filtroExplorar);
     h(`
       <h2>${t('explorarTitulo')}</h2>
-      <div class="chips">${REGIONES.map((r) => `<button class="chip ${regionVista === r.id ? 'activo' : ''}" data-reg="${r.id}">${nombreRegion(r.id)}</button>`).join('')}</div>
+      ${chipsVista(regionVista)}
       <div class="ayuda">${t('explorarAyuda')}</div>
       ${
         hb
@@ -408,7 +433,7 @@ function explorar() {
       }
       <div class="separador"></div>
       <div class="chips">
-        <button class="chip ${filtroExplorar === 'todos' ? 'activo' : ''}" data-g="todos">${t('todas')}</button>
+        <button class="chip ${filtroExplorar === 'todos' ? 'activo' : ''}" data-g="todos">${t('todos')}</button>
         ${grupos.map((g) => `<button class="chip ${filtroExplorar === g ? 'activo' : ''}" data-g="${g}">${nombreGrupo(g)}</button>`).join('')}
       </div>
       <h3>${t('lista')}</h3>
@@ -416,7 +441,7 @@ function explorar() {
     todos<HTMLButtonElement>('[data-reg]').forEach(
       (b) =>
         (b.onclick = () => {
-          regionVista = b.dataset.reg as RegionId;
+          regionVista = b.dataset.reg as Vista;
           filtroExplorar = 'todos';
           explorar();
         }),
@@ -447,9 +472,58 @@ function explorar() {
   pintar(null);
 }
 
+// ================= PARTES DE CADA HUESO =================
+// De momento solo la estructura: cada hueso (sin repetir lados ni vértebras) con su lista de partes.
+let partesSel: string | null = null;
+function partesUI() {
+  visor.mostrarTodos(regionVista, false);
+  visor.clicable = true;
+  const unidad = (id: string) => {
+    const b = huesoPorId.get(id);
+    return b ? (b.tipo ?? b.par ?? b.id) : id;
+  };
+  const ids = [...new Set(deVista(regionVista).map((x) => unidad(x.id)))];
+  const sel = partesSel ? preguntaPorId.get(partesSel) : null;
+  const ps = sel ? PARTES[sel.id] ?? [] : [];
+  sel?.miembros.forEach((m) => visor.marcar(m, 'resalte'));
+  h(`
+    <h2>${t('partesTitulo')}</h2>
+    ${chipsVista(regionVista)}
+    <div class="ayuda">${t('partesAyuda')}</div>
+    ${
+      sel
+        ? `<div class="objetivo"><div class="etiqueta">${nombreGrupo(sel.grupo)}</div>${esc(mayus(nombre(sel)))}</div>
+           ${ps.length ? `<div class="chips">${ps.map((p) => `<span class="chip">${esc(idioma() === 'en' && p.en ? p.en : p.nombre)}</span>`).join('')}</div>` : `<div class="resultado">${t('sinPartes')}</div>`}`
+        : `<div class="resultado">${t('pinchaUno')}</div>`
+    }
+    <h3>${t('lista')}</h3>
+    <div class="lista-partes">${ids
+      .map((id) => {
+        const p = preguntaPorId.get(id)!;
+        const n = PARTES[id]?.length ?? 0;
+        return `<button class="fila ${id === partesSel ? 'activo' : ''}" data-h="${id}"><span>${esc(mayus(nombre(p)))}</span><small>${n ? `${n} ${t('partesN')}` : t('sinPartesCorto')}</small></button>`;
+      })
+      .join('')}</div>`);
+  const elegir = (id: string) => {
+    partesSel = unidad(id);
+    partesUI();
+  };
+  todos<HTMLButtonElement>('[data-h]').forEach((b) => (b.onclick = () => elegir(b.dataset.h!)));
+  todos<HTMLButtonElement>('[data-reg]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        regionVista = b.dataset.reg as Vista;
+        partesSel = null;
+        visor.limpiarMarcas();
+        partesUI();
+      }),
+  );
+  visor.onClick = elegir;
+}
+
 // ================= AJUSTES =================
 function ajustesUI() {
-  visor.mostrarTodos(srs.ajustes().regiones[0] ?? 'mano', false);
+  visor.mostrarTodos(vistaEstudio(), false);
   const a = srs.ajustes();
   const estilos: [Estilo, string][] = [
     ['realista', 'radial-gradient(circle at 35% 35%, #f3e8d2, #b9a37e)'],
@@ -472,7 +546,7 @@ function ajustesUI() {
     </div>
     <div class="fila"><span>${t('nuevasDia')}</span><input type="number" id="nuevas" min="1" max="200" value="${a.nuevasPorDia}"/></div>
     <div class="separador"></div>
-    <button class="btn" id="editor">✎ ${t('editor')}${editados ? ` <small>${editados} ${t('editados')}</small>` : ''}</button>
+    <button class="btn" id="editor">${t('editor')}${editados ? ` <small>${editados} ${t('editados')}</small>` : ''}</button>
     <button class="btn peligro" id="reset">${t('borrar')}</button>
     <p class="creditos">${t('creditos')}</p>`);
   todos<HTMLButtonElement>('[data-e]').forEach(
@@ -513,6 +587,8 @@ function ajustesUI() {
 }
 
 // ================= EDITOR DE NOMBRES =================
+const etiquetaEditor = (x: Pregunta) =>
+  x.id.startsWith('T:') ? `${t('tipoDe')} · ${nombreGrupo(x.grupo)}` : x.id.startsWith('P:') ? `${t('aislado')} · ${nombreGrupo(x.grupo)}` : nombreGrupo(x.grupo);
 let busqueda = '';
 function editor() {
   visor.mostrarTodos(regionVista, false);
@@ -521,37 +597,38 @@ function editor() {
     <button class="volver" id="atras">← ${t('ajustes')}</button>
     <h2>${t('editor')} · ${idioma() === 'es' ? 'Español' : 'English'}</h2>
     <div class="ayuda">${t('editorAyuda')}</div>
-    <div class="chips">${REGIONES.map((r) => `<button class="chip ${regionVista === r.id ? 'activo' : ''}" data-reg="${r.id}">${nombreRegion(r.id)}</button>`).join('')}</div>
+    ${chipsVista(regionVista)}
     <input class="campo" id="buscar" placeholder="${t('buscar')}" value="${esc(busqueda)}"/>
     <div id="lista" style="display:grid;gap:8px"></div>
     <button class="btn peligro" id="restaurar">${t('restaurar')}</button>`);
   const lista = $('#lista');
   const pintarLista = () => {
     const q = busqueda.toLowerCase();
-    const hs = HUESOS.filter((x) => x.region === regionVista && (!q || nombre(x).toLowerCase().includes(q) || sinonimos(x).some((s) => s.toLowerCase().includes(q))));
+    const agr = AGRUPADAS.filter((x) => regionVista === 'completo' || x.region === regionVista);
+    const hs = [...agr, ...deVista(regionVista)].filter((x) => (!q || nombre(x).toLowerCase().includes(q) || sinonimos(x).some((s) => s.toLowerCase().includes(q))));
     lista.innerHTML = hs
       .map((x) => {
         const n = nombreDe(x);
         return `<div class="editor-item" data-id="${x.id}">
-          <div class="titulo"><span>${nombreGrupo(x.grupo)}</span>${esEditado(x) ? `<span class="editado">● ${t('editados')}</span>` : ''}</div>
+          <div class="titulo"><span>${etiquetaEditor(x)}</span>${esEditado(x) ? `<span class="editado">● ${t('editados')}</span>` : ''}</div>
           <input class="campo" data-campo="nombre" value="${esc(n.nombre)}" aria-label="${t('nombreCampo')}"/>
           <input class="campo" data-campo="sin" value="${esc(n.sinonimos.join(', '))}" placeholder="${t('sinonimosCampo')}" aria-label="${t('sinonimosCampo')}"/>
         </div>`;
       })
       .join('');
     todos<HTMLElement>('.editor-item', lista).forEach((item) => {
-      const hb = huesoPorId.get(item.dataset.id!)!;
+      const hb = preguntaPorId.get(item.dataset.id!)!;
       const [inN, inS] = todos<HTMLInputElement>('input', item);
       const guardar = () => {
         guardarNombre(hb, { nombre: inN.value, sinonimos: inS.value.split(',') });
         const tit = item.querySelector('.titulo')!;
-        tit.innerHTML = `<span>${nombreGrupo(hb.grupo)}</span>${esEditado(hb) ? `<span class="editado">● ${t('editados')}</span>` : ''}`;
+        tit.innerHTML = `<span>${etiquetaEditor(hb)}</span>${esEditado(hb) ? `<span class="editado">● ${t('editados')}</span>` : ''}`;
       };
       inN.onchange = guardar;
       inS.onchange = guardar;
       inN.onfocus = inS.onfocus = () => {
         visor.limpiarMarcas();
-        visor.marcar(hb.id, 'resalte');
+        hb.miembros.forEach((m) => visor.marcar(m, 'resalte'));
       };
     });
   };
@@ -573,7 +650,7 @@ function editor() {
   todos<HTMLButtonElement>('[data-reg]').forEach(
     (b) =>
       (b.onclick = () => {
-        regionVista = b.dataset.reg as RegionId;
+        regionVista = b.dataset.reg as Vista;
         editor();
       }),
   );

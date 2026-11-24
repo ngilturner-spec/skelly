@@ -140,7 +140,7 @@ function normals({ pos, tris }) {
   });
 }
 
-async function construir(region, cfg) {
+async function construir(region, cfg, center) {
 const OUT = path.resolve(`public/models/${region}.glb`);
 const piezas = [...cfg.huesos.map((id) => [id, false]), ...cfg.contexto.map((id) => [id, true])];
 const objDir = path.join(RAW, 'obj');
@@ -176,16 +176,7 @@ const meshes = elements.map(([fma, name, fjs, contexto]) => {
   return { fma, name, contexto, ...m };
 });
 
-// centrar la región en el origen
-let min = [Infinity, Infinity, Infinity];
-let max = [-Infinity, -Infinity, -Infinity];
-for (const m of meshes)
-  for (const p of m.pos)
-    for (let k = 0; k < 3; k++) {
-      min[k] = Math.min(min[k], p[k]);
-      max[k] = Math.max(max[k], p[k]);
-    }
-const center = mul(add(min, max), 0.5);
+// todas las regiones comparten el mismo origen (centro del esqueleto) para encajar entre sí
 
 const doc = new Document();
 const buffer = doc.createBuffer();
@@ -221,8 +212,28 @@ await io.write(OUT, doc);
 console.log(`\nGuardado ${OUT} (${(fs.statSync(OUT).size / 1024 / 1024).toFixed(2)} MB)`);
 }
 
+// centro común: caja de todas las piezas de todas las regiones
+function centroGlobal() {
+  const objDir = path.join(RAW, 'obj');
+  fs.mkdirSync(objDir, { recursive: true });
+  const fjs = Object.values(REGIONES).flatMap((cfg) => [...cfg.huesos, ...cfg.contexto].flatMap((id) => elementos.get(id)?.fj ?? []));
+  const faltan = fjs.filter((fj) => !fs.existsSync(path.join(objDir, `${fj}.obj`))).map((fj) => `isa_BP3D_4.0_obj_99/${fj}.obj`);
+  for (let i = 0; i < faltan.length; i += 100) execFileSync('unzip', ['-o', '-j', '-q', ZIP, ...faltan.slice(i, i + 100), '-d', objDir]);
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const fj of fjs)
+    for (const p of parseObj(path.join(objDir, `${fj}.obj`)).pos)
+      for (let k = 0; k < 3; k++) {
+        min[k] = Math.min(min[k], p[k]);
+        max[k] = Math.max(max[k], p[k]);
+      }
+  return mul(add(min, max), 0.5);
+}
+const centro = centroGlobal();
+console.log('centro del esqueleto', centro.map((x) => x.toFixed(1)));
+
 const pedidas = process.argv.slice(2);
 for (const [region, cfg] of Object.entries(REGIONES)) {
   if (pedidas.length && !pedidas.includes(region)) continue;
-  await construir(region, cfg);
+  await construir(region, cfg, centro);
 }
