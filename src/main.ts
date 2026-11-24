@@ -10,7 +10,7 @@ import * as srs from './srs';
 import { BufferAttribute as THREE_BA } from 'three';
 import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, type Apartado } from './data/partes';
 import type { Zona } from './zonas';
-import { pesoEnPunto } from './zonas';
+import { pesoEnPunto, aNormal } from './zonas';
 import type { Estilo, Modo, Tarjeta } from './srs';
 
 const panel = document.querySelector<HTMLElement>('#panel')!;
@@ -513,7 +513,7 @@ function partesUI(reencuadrar = true) {
         .map(
           (s) =>
             `<h3>${esc(s)}</h3><div class="lista-partes">${APARTADOS.filter((a) => a.seccion === s)
-              .map((a) => `<button class="fila" data-ap="${a.id}"><span>${esc(nombreAp(a))}</span><small>${a.partes.length} ${t('partesN')}</small></button>`)
+              .map((a) => `<button class="fila" data-ap="${a.id}"><span>${esc(nombreAp(a))}</span><small>${a.partes.length} ${a.partes.length === 1 ? t('parteN') : t('partesN')}</small></button>`)
               .join('')}</div>`,
         )
         .join('')}
@@ -931,11 +931,11 @@ if (import.meta.env.DEV) {
     return out;
   };
   // varias partes en una imagen, cada una desde su vista de tarjeta
-  (window as unknown as Record<string, unknown>).__mosaico = async (ap: string, partes?: string[], i = 0) => {
+  (window as unknown as Record<string, unknown>).__mosaico = async (ap: string, partes?: string[], i = 0, cols = 3) => {
     const w = window as unknown as Record<string, (...x: unknown[]) => unknown>;
     const { apartadoPorId } = await import('./data/partes');
     const lista = partes ?? apartadoPorId.get(ap)!.partes.map((p) => p.id);
-    const W = 400, H = 300, cols = 3;
+    const W = Math.round(1200 / cols), H = Math.round((900 / cols) * 1);
     const cv = document.createElement('canvas');
     cv.width = W * cols;
     cv.height = H * Math.ceil(lista.length / cols);
@@ -971,6 +971,17 @@ if (import.meta.env.DEV) {
     const z = new Map(ids.map((id) => [id, Array.isArray(p.zonas) ? p.zonas : (p.zonas[id] ?? [])]));
     visor.mostrarParte(ids, z, p.dir);
     return p.nombre;
+  };
+  // rayo desde la cámara por un punto de la pantalla (0–1) → coordenadas normalizadas del hueso
+  (window as unknown as Record<string, unknown>).__pick = (pts: [number, number][]) => {
+    const v = visor as unknown as { raycaster: import('three').Raycaster; camera: import('three').Camera; solo: Set<string>; piezas: Map<string, { mesh: import('three').Object3D }> };
+    const id = [...v.solo][0];
+    const mn = visor.mallaNorm(id)!;
+    return pts.map(([sx, sy]) => {
+      v.raycaster.setFromCamera({ x: sx * 2 - 1, y: -(sy * 2 - 1) } as import('three').Vector2, v.camera);
+      const hit = v.raycaster.intersectObject(v.piezas.get(id)!.mesh, true)[0];
+      return hit ? aNormal(mn, hit.point).join(',') : '-';
+    });
   };
 }
 pintarBarra();

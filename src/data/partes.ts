@@ -259,6 +259,147 @@ export const APARTADOS: Apartado[] = [
       { id: 'carilla-posterior', nombre: 'carilla articular posterior del diente', sinonimos: ['carilla articular posterior'], en: 'posterior articular surface', enSin: ['posterior articular facet'], zonas: [{ c: [0.5, 0.82, 0.67], r: [0.07, 0.08, 0.04] }], dir: [0.2, 0.5, -1] },
     ],
   },
+  // sacro (malla única, centrada). Medido con rayos:
+  //   cara pelviana: promontorio (y 0.82, z 0.97) → baja curvándose hacia atrás (y 0.6 z 0.4; y 0.4 z 0.22; vértice y 0)
+  //   cara dorsal casi plana, z 0.05–0.25; agujeros anteriores x≈0.34–0.41, posteriores x≈0.31–0.41, a y 0.73/0.6/0.52/0.4
+  //   carilla auricular: lo más lateral, y 0.6–0.85, z 0.5–0.78
+  {
+    id: 'sacro',
+    nombre: 'Sacro',
+    en: 'Sacrum',
+    region: 'tronco',
+    seccion: 'Columna vertebral',
+    huesos: [SACRO],
+    partes: [
+      // base
+      { id: 'promontorio', nombre: 'promontorio', sinonimos: ['promontorio del sacro'], en: 'promontory', enSin: ['sacral promontory'], zonas: [{ c: [0.5, 0.82, 0.97], r: [0.12, 0.035, 0.05] }], dir: [0.4, 0.3, 1] },
+      { id: 'ala', nombre: 'ala del sacro', sinonimos: ['ala sacra', 'aleta del sacro'], en: 'ala of sacrum', enSin: ['sacral ala', 'ala'], zonas: [{ c: [0.13, 0.9, 0.67], r: [0.13, 0.05, 0.15], sim: true }, { c: [0.32, 0.96, 0.6], r: 0.06, sim: true, menos: true }], dir: [0.4, 1, 0.5] },
+      { id: 'articular-superior', nombre: 'apófisis articular superior del sacro', sinonimos: ['apofisis articular superior', 'proceso articular superior'], en: 'superior articular process', zonas: [{ c: [0.32, 0.96, 0.6], r: [0.06, 0.06, 0.07], sim: true }], dir: [0.3, 1, -0.6] },
+      // porción lateral
+      { id: 'auricular', nombre: 'carilla auricular', sinonimos: ['cara auricular', 'superficie auricular'], en: 'auricular surface', zonas: [{ c: [0.02, 0.72, 0.74], r: [0.05, 0.12, 0.08], sim: true }], dir: [-1, 0.15, 0.2] },
+      { id: 'tuberosidad', nombre: 'tuberosidad sacra', sinonimos: ['tuberosidad del sacro'], en: 'sacral tuberosity', zonas: [{ c: [0.13, 0.74, 0.42], r: [0.07, 0.09, 0.06], sim: true }], dir: [-0.7, 0.3, -1] },
+      { id: 'interoseo', nombre: 'región para el ligamento interóseo', sinonimos: ['region del ligamento interoseo', 'zona del ligamento interoseo'], en: 'area for interosseous ligament', zonas: [{ c: [0.07, 0.83, 0.58], r: 0.05, sim: true }], dir: [-1, 0.5, -0.6] },
+      // cara pelviana
+      {
+        id: 'lineas-transversales',
+        nombre: 'líneas transversales',
+        sinonimos: ['lineas transversas', 'crestas transversales'],
+        en: 'transverse ridges',
+        enSin: ['transverse lines'],
+        zonas: [
+          { c: [0.5, 0.72, 0.75], r: [0.11, 0.022, 0.06] },
+          { c: [0.5, 0.6, 0.41], r: [0.11, 0.022, 0.06] },
+          { c: [0.5, 0.51, 0.26], r: [0.1, 0.022, 0.05] },
+          { c: [0.5, 0.4, 0.22], r: [0.09, 0.022, 0.05] },
+        ],
+        dir: [0.2, -0.6, 1],
+      },
+      {
+        id: 'agujeros-anteriores',
+        nombre: 'agujeros sacros anteriores',
+        sinonimos: ['agujeros sacros pelvianos', 'forámenes sacros anteriores'],
+        en: 'anterior sacral foramina',
+        enSin: ['pelvic sacral foramina'],
+        zonas: [
+          { c: [0.33, 0.71, 0.62], r: 0.06, sim: true },
+          { c: [0.38, 0.62, 0.47], r: 0.055, sim: true },
+          { c: [0.38, 0.51, 0.27], r: 0.07, sim: true },
+          { c: [0.4, 0.39, 0.21], r: 0.06, sim: true },
+        ],
+        dir: [0.2, -0.6, 1],
+      },
+      {
+        id: 'intervertebrales',
+        nombre: 'agujeros intervertebrales del sacro',
+        sinonimos: ['agujeros intervertebrales'],
+        en: 'intervertebral foramina',
+        zonas: [
+          { c: [0.36, 0.72, 0.45], r: 0.045, sim: true },
+          { c: [0.39, 0.62, 0.3], r: 0.045, sim: true },
+          { c: [0.39, 0.52, 0.17], r: 0.045, sim: true },
+          { c: [0.41, 0.4, 0.14], r: 0.04, sim: true },
+        ],
+        dir: [0.3, -0.4, 1],
+      },
+      // cara dorsal
+      {
+        id: 'cresta-media',
+        nombre: 'cresta sacra media',
+        sinonimos: ['cresta sacra mediana'],
+        en: 'median sacral crest',
+        zonas: [
+          { c: [0.5, 0.77, 0.27], r: [0.035, 0.06, 0.05] },
+          { c: [0.5, 0.66, 0.14], r: [0.035, 0.06, 0.05] },
+          { c: [0.5, 0.54, 0.04], r: [0.035, 0.06, 0.05] },
+          { c: [0.5, 0.44, 0.04], r: [0.035, 0.06, 0.05] },
+          { c: [0.5, 0.35, 0.06], r: [0.03, 0.05, 0.05] },
+        ],
+        dir: [0.3, 0.3, -1],
+      },
+      {
+        id: 'agujeros-posteriores',
+        nombre: 'agujeros sacros posteriores',
+        sinonimos: ['agujeros sacros dorsales', 'forámenes sacros posteriores'],
+        en: 'posterior sacral foramina',
+        enSin: ['dorsal sacral foramina'],
+        zonas: [
+          { c: [0.3, 0.75, 0.42], r: 0.05, sim: true },
+          { c: [0.36, 0.645, 0.3], r: 0.05, sim: true },
+          { c: [0.36, 0.53, 0.16], r: 0.06, sim: true },
+          { c: [0.375, 0.395, 0.14], r: 0.055, sim: true },
+        ],
+        dir: [0.2, 0.4, -1],
+      },
+      {
+        id: 'cresta-intermedia',
+        nombre: 'cresta sacra intermedia',
+        sinonimos: ['cresta sacra articular'],
+        en: 'intermediate sacral crest',
+        zonas: [
+          { c: [0.39, 0.77, 0.36], r: [0.022, 0.05, 0.05], sim: true },
+          { c: [0.43, 0.64, 0.2], r: [0.02, 0.05, 0.05], sim: true },
+          { c: [0.455, 0.53, 0.09], r: [0.02, 0.05, 0.05], sim: true },
+          { c: [0.455, 0.42, 0.08], r: [0.02, 0.05, 0.05], sim: true },
+        ],
+        dir: [0.3, 0.4, -1],
+      },
+      {
+        id: 'cresta-lateral',
+        nombre: 'cresta sacra lateral',
+        sinonimos: ['cresta sacra transversa'],
+        en: 'lateral sacral crest',
+        zonas: [
+          { c: [0.18, 0.75, 0.4], r: [0.035, 0.06, 0.06], sim: true },
+          { c: [0.2, 0.65, 0.27], r: [0.035, 0.06, 0.06], sim: true },
+          { c: [0.25, 0.53, 0.19], r: [0.035, 0.06, 0.06], sim: true },
+          { c: [0.29, 0.4, 0.16], r: [0.03, 0.05, 0.06], sim: true },
+        ],
+        dir: [0.3, 0.4, -1],
+      },
+      { id: 'asta', nombre: 'asta del sacro', sinonimos: ['astas del sacro', 'cuerno del sacro', 'cuernos sacros'], en: 'sacral cornu', enSin: ['sacral horn'], zonas: [{ c: [0.43, 0.27, 0.17], r: 0.035, sim: true }], dir: [0.2, -0.3, -1] },
+      {
+        id: 'conducto',
+        nombre: 'conducto sacro',
+        sinonimos: ['canal sacro'],
+        en: 'sacral canal',
+        // en el modelo solo se ve la entrada de arriba (el resto es macizo)
+        zonas: [{ c: [0.5, 0.87, 0.58], r: [0.1, 0.04, 0.06] }],
+        dir: [0.1, 1, -0.7],
+      },
+      { id: 'hiato', nombre: 'hiato sacro', sinonimos: ['hiato del sacro'], en: 'sacral hiatus', zonas: [{ c: [0.5, 0.27, 0.1], r: [0.05, 0.06, 0.05] }], dir: [0.1, -0.3, -1] },
+      { id: 'vertice', nombre: 'vértice del sacro', sinonimos: ['vertice', 'apice del sacro'], en: 'apex of sacrum', enSin: ['sacral apex'], zonas: [{ c: [0.5, 0.03, 0.18], r: 0.06 }], dir: [0.4, -0.5, 1] },
+    ],
+  },
+  // cóccix (malla NIH): astas arriba y detrás, x 0.2/0.8
+  {
+    id: 'coxis',
+    nombre: 'Cóccix',
+    en: 'Coccyx',
+    region: 'tronco',
+    seccion: 'Columna vertebral',
+    huesos: [COCCIX],
+    partes: [{ id: 'asta', nombre: 'asta del cóccix', sinonimos: ['asta del coxis', 'astas del coxis', 'cuerno del coxis', 'cuernos coccigeos'], en: 'coccygeal cornu', enSin: ['coccygeal horn'], zonas: [{ c: [0.22, 0.92, 0.08], r: 0.13, sim: true }], dir: [0.3, 0.4, -1] }],
+  },
 ];
 
 export const apartadoPorId = new Map(APARTADOS.map((a) => [a.id, a]));
