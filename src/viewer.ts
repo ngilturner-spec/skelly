@@ -6,6 +6,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { HUESOS, huesoPorId, REGIONES, type RegionId } from './data/huesos';
 import type { Estilo } from './srs';
+import { prepararMalla, pesos, aNormal, centroPintado, type MallaNorm, type Zona } from './zonas';
 
 type Vista = 'aislado' | 'conjunto' | 'todos';
 
@@ -78,6 +79,24 @@ function texturaHueso(m: THREE.MeshStandardMaterial) {
   m.customProgramCacheKey = () => 'hueso-realista';
 }
 
+/** Pinta en violeta los vértices con atributo "parte" (0–1). Se suma al material que ya hubiera. */
+function conParte<M extends THREE.Material>(m: M): M {
+  const previo = m.onBeforeCompile;
+  const clave = m.customProgramCacheKey();
+  m.onBeforeCompile = (sh, r) => {
+    previo.call(m, sh, r);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float parte;\nvarying float vParte;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvParte = parte;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vParte;')
+      .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.22, 0.95), vParte);')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(0.1, 0.04, 0.3) * vParte;');
+  };
+  m.customProgramCacheKey = () => clave + '|parte';
+  return m;
+}
+
 function materialBorde(color: string, grosor: number) {
   return new THREE.ShaderMaterial({
     uniforms: { grosor: { value: grosor }, color: { value: new THREE.Color(color) } },
@@ -122,6 +141,13 @@ export class Visor {
   private esferaCompleta = new THREE.Sphere();
   private encuadreBase: [THREE.Sphere, THREE.Vector3, number] | null = null;
   private objetivo: string | null = null;
+  /** en vista aislada: huesos que se ven (si null, solo el objetivo) */
+  private solo: Set<string> | null = null;
+  /** huesos con una parte pintada */
+  private pintados = new Set<string>();
+  private mallasNorm = new Map<string, MallaNorm>();
+  /** Al tocar un hueso: id y punto en coordenadas normalizadas (para el editor de zonas). */
+  onClickPunto: ((id: string, punto: [number, number, number]) => void) | null = null;
   private marcas = new Map<string, THREE.Color>();
   private hover: string | null = null;
   private esferasRegion = new Map<RegionId, THREE.Sphere>();
@@ -239,6 +265,8 @@ export class Visor {
     this.vista = 'aislado';
     this.region = p.region;
     this.objetivo = id;
+    this.solo = null;
+    this.pintarZonas(null);
     this.marcas.clear();
     this.actualizarMateriales();
     // vista desde un ángulo aleatorio para no memorizar "la foto"
@@ -250,6 +278,8 @@ export class Visor {
   mostrarConjunto(id: string, completo = false) {
     const p = this.piezas.get(id)!;
     this.vista = 'conjunto';
+    this.solo = null;
+    this.pintarZonas(null);
     this.completo = completo;
     this.region = p.region;
     this.objetivo = id;
@@ -273,6 +303,8 @@ export class Visor {
     if (clave !== this.claveVista || this.vista !== 'todos') enfocar = true;
     this.claveVista = clave;
     this.vista = 'todos';
+    this.solo = null;
+    this.pintarZonas(null);
     this.completo = completo;
     this.region = r;
     this.objetivo = null;
@@ -280,6 +312,78 @@ export class Visor {
     this.actualizarMateriales();
     const esfera = region === 'completo' ? this.esferaCompleta : this.esferasRegion.get(r) ?? this.esferaCompleta;
     if (enfocar) this.encuadrar(esfera, new THREE.Vector3(0.12, 0.08, 1).normalize(), 1.08, true);
+  }
+
+  // ---------- partes de huesos ----------
+  mallaNorm(id: string): MallaNorm | null {
+    const hecha = this.mallasNorm.get(id);
+    if (hecha) return hecha;
+    const p = this.piezas.get(id);
+    if (!p) return null;
+    const attr = p.mesh.geometry.getAttribute('position');
+    const pos = new Float32Array(attr.count * 3);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < attr.count; i++) {
+      v.fromBufferAttribute(attr, i).applyMatrix4(p.mesh.matrixWorld);
+      pos[i * 3] = v.x;
+      pos[i * 3 + 1] = v.y;
+      pos[i * 3 + 2] = v.z;
+    }
+    // huesos del lado izquierdo: las zonas se escriben para el derecho y se reflejan
+    const espejo = p.esfera.center.x > this.esferaCompleta.center.x + 0.3;
+    const m = prepararMalla(pos, espejo);
+    this.mallasNorm.set(id, m);
+    return m;
+  }
+
+  /** Pinta zonas en varios huesos (null = borrar). Devuelve el centro de lo pintado. */
+  pintarZonas(zonas: Map<string, Zona[]> | null): THREE.Vector3 | null {
+    for (const id of this.pintados) this.piezas.get(id)?.mesh.geometry.deleteAttribute('parte');
+    this.pintados.clear();
+    if (!zonas) return null;
+    const suma = new THREE.Vector3();
+    let n = 0;
+    for (const [id, zs] of zonas) {
+      const m = this.mallaNorm(id);
+      const p = this.piezas.get(id);
+      if (!m || !p || !zs.length) continue;
+      const w = pesos(m, zs);
+      p.mesh.geometry.setAttribute('parte', new THREE.BufferAttribute(w, 1));
+      this.pintados.add(id);
+      const c = centroPintado(m, w);
+      if (c) {
+        suma.add(new THREE.Vector3(...c));
+        n++;
+      }
+    }
+    this.actualizarMateriales();
+    return n ? suma.divideScalar(n) : null;
+  }
+
+  /**
+   * Enseña solo unos huesos con una parte pintada, mirando hacia la parte.
+   * dir: dirección de la cámara (si no, se calcula sola).
+   */
+  mostrarParte(ids: string[], zonas: Map<string, Zona[]>, dir?: [number, number, number]) {
+    this.vista = 'aislado';
+    this.objetivo = ids[0];
+    this.solo = new Set(ids);
+    this.completo = false;
+    this.marcas.clear();
+    const centro = this.pintarZonas(zonas);
+    const caja = new THREE.Box3();
+    for (const id of ids) {
+      const p = this.piezas.get(id);
+      if (p) caja.expandByObject(p.mesh);
+    }
+    const esfera = caja.getBoundingSphere(new THREE.Sphere());
+    let d: THREE.Vector3;
+    if (dir) d = new THREE.Vector3(...dir);
+    else if (centro && centro.distanceTo(esfera.center) > esfera.radius * 0.15) {
+      // desde el lado de la parte, algo en diagonal para dar volumen
+      d = centro.clone().sub(esfera.center).normalize().add(new THREE.Vector3(0.25, 0.3, 0.25));
+    } else d = new THREE.Vector3(0.35, 0.5, 1);
+    this.encuadrar(esfera, d.normalize(), 1.15, true);
   }
 
   /** Zona alrededor de un hueso para verlo "en conjunto": su grupo en el mismo lado, con margen. */
@@ -353,10 +457,11 @@ export class Visor {
 
   private actualizarMateriales() {
     for (const p of this.piezas.values()) {
-      const visible = this.vista === 'aislado' ? p.id === this.objetivo : this.completo || p.region === this.region;
+      const visible = this.vista === 'aislado' ? (this.solo ? this.solo.has(p.id) : p.id === this.objetivo) : this.completo || p.region === this.region;
       p.mesh.visible = visible;
       if (!visible) continue;
       const m = this.materialBase(p);
+      if (this.pintados.has(p.id)) conParte(m);
       const marca =
         this.marcas.get(p.id) ??
         (p.id === this.objetivo && this.vista === 'conjunto' ? COLOR_RESALTE : null) ??
@@ -458,12 +563,15 @@ export class Visor {
 
   // ---------- ratón / dedo ----------
   private pick(ev: PointerEvent): string | null {
+    return this.pickHit(ev)?.object.name ?? null;
+  }
+
+  private pickHit(ev: PointerEvent) {
     const r = this.renderer.domElement.getBoundingClientRect();
     const v = new THREE.Vector2(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(v, this.camera);
     const meshes = [...this.piezas.values()].filter((p) => p.mesh.visible && !p.contexto).map((p) => p.mesh);
-    const hit = this.raycaster.intersectObjects(meshes, false)[0];
-    return hit ? hit.object.name : null;
+    return this.raycaster.intersectObjects(meshes, false)[0] ?? null;
   }
 
   private eventos() {
@@ -483,8 +591,14 @@ export class Visor {
       const movido = Math.hypot(e.clientX - inicio.x, e.clientY - inicio.y) > 6; // fue un giro, no un clic
       inicio = null;
       if (movido) return;
-      const id = this.pick(e);
-      if (id) this.onClick?.(id);
+      const hit = this.pickHit(e);
+      if (!hit) return;
+      const id = hit.object.name;
+      if (this.onClickPunto) {
+        const m = this.mallaNorm(id);
+        if (m) this.onClickPunto(id, aNormal(m, hit.point));
+      }
+      this.onClick?.(id);
     });
     el.addEventListener('pointermove', (e) => {
       if (!this.clicable || e.pointerType !== 'mouse' || e.buttons) return;

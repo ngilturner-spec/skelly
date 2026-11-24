@@ -7,7 +7,10 @@ import { comprobarVarias, pista, type Resultado } from './answer';
 import { t, tGrupo, tRegion, idioma, cambiarIdioma, nombre, sinonimos, nombreDe, guardarNombre, esEditado, restaurarNombres, huesosEditados, type Idioma } from './i18n';
 import { sonidoAcierto, sonidoFallo } from './sonido';
 import * as srs from './srs';
-import { PARTES } from './data/partes';
+import { BufferAttribute as THREE_BA } from 'three';
+import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, type Apartado } from './data/partes';
+import type { Zona } from './zonas';
+import { pesoEnPunto } from './zonas';
 import type { Estilo, Modo, Tarjeta } from './srs';
 
 const panel = document.querySelector<HTMLElement>('#panel')!;
@@ -30,6 +33,8 @@ const vistaEstudio = (): Vista => (esCompleto() ? 'completo' : srs.ajustes().reg
 const azar = <T,>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 /** Lo que hay que responder. En conjunto, las vértebras y costillas se responden con su tipo. */
 function preguntaDe(tj: Tarjeta): Pregunta {
+  const pt = partePorId.get(tj.hueso);
+  if (pt) return pt;
   const p = preguntaPorId.get(tj.hueso)!;
   const b = huesoPorId.get(tj.hueso);
   if (tj.modo === 'conjunto' && b?.tipo) return preguntaPorId.get(b.tipo)!;
@@ -49,7 +54,9 @@ const $ = <T extends HTMLElement>(sel: string) => panel.querySelector<T>(sel)!;
 const todos = <T extends HTMLElement>(sel: string, raiz: ParentNode = panel) => [...raiz.querySelectorAll<T>(sel)];
 const nombreRegion = (id: RegionId): string => tRegion(id, REGIONES.find((r) => r.id === id)!.nombre);
 const nombreGrupo = (g: Grupo) => tGrupo(g, GRUPOS[g]);
-const MODOS_T: Record<Modo, () => string> = { aislado: () => t('aislado'), conjunto: () => t('conjunto'), localizar: () => t('localizar') };
+const MODOS_T: Record<Modo, () => string> = { aislado: () => t('aislado'), conjunto: () => t('conjunto'), localizar: () => t('localizar'), partes: () => t('partesModo') };
+const TODOS_MODOS = Object.keys(MODOS_T) as Modo[];
+const nombreAp = (a: Apartado) => (idioma() === 'en' ? a.en : a.nombre);
 
 function aplicarEscala() {
   document.documentElement.style.setProperty('--escala', String(srs.ajustes().escalaLetra));
@@ -69,7 +76,7 @@ function pintarBarra() {
   if (pantalla === 'estudio') {
     const a = srs.ajustes();
     const regionSel = a.regiones.length === REGIONES.length ? 'todas' : a.regiones[0];
-    const modoSel = a.modos.length === 3 ? 'mezcla' : a.modos[0];
+    const modoSel = a.modos.length === TODOS_MODOS.length ? 'mezcla' : a.modos[0];
     const pct = Math.min(100, (100 * sesion.hechas) / Math.max(1, sesion.objetivo));
     barra.innerHTML = `
       <span class="logo ocultar-movil"><span class="punto"></span>skelly</span>
@@ -93,7 +100,7 @@ function pintarBarra() {
     };
     barra.querySelector<HTMLSelectElement>('#selModo')!.onchange = (e) => {
       const v = (e.target as HTMLSelectElement).value;
-      srs.cambiarAjustes({ modos: v === 'mezcla' ? ['aislado', 'conjunto', 'localizar'] : [v as Modo] });
+      srs.cambiarAjustes({ modos: v === 'mezcla' ? TODOS_MODOS : [v as Modo] });
       empezarSesion();
     };
     return;
@@ -192,8 +199,9 @@ function empezarSesion() {
 
 // ================= ESTUDIO =================
 function etiquetaDe(tj: Tarjeta) {
-  const hb = preguntaPorId.get(tj.hueso)!;
-  return `<div class="etiqueta">${MODOS_T[tj.modo]()} · ${nombreGrupo(hb.grupo)}${srs.esNueva(tj) ? ` <span class="insignia">${t('nueva')}</span>` : ''}</div>`;
+  const pt = partePorId.get(tj.hueso);
+  const grupo = pt ? nombreAp(pt.apartado) : nombreGrupo(preguntaPorId.get(tj.hueso)!.grupo);
+  return `<div class="etiqueta">${MODOS_T[tj.modo]()} · ${grupo}${srs.esNueva(tj) ? ` <span class="insignia">${t('nueva')}</span>` : ''}</div>`;
 }
 
 function siguienteTarjeta() {
@@ -205,15 +213,23 @@ function siguienteTarjeta() {
   const etiqueta = etiquetaDe(tj);
 
   if (tj.modo === 'localizar') return tarjetaLocalizar(tj, etiqueta);
-  mostrado = tj.modo === 'conjunto' ? tj.hueso : azar(hb.miembros);
-  if (tj.modo === 'aislado') visor.mostrarAislado(mostrado);
-  else visor.mostrarConjunto(mostrado, esCompleto());
+  const pt = partePorId.get(tj.hueso);
+  if (pt) {
+    // parte de un hueso: se pinta en violeta sobre el hueso
+    mostrado = '';
+    const ids = huesosDe(pt.apartado);
+    visor.mostrarParte(ids, zonasDe(pt.parte, ids, pt.id), pt.parte.dir);
+  } else {
+    mostrado = tj.modo === 'conjunto' ? tj.hueso : azar(hb.miembros);
+    if (tj.modo === 'aislado') visor.mostrarAislado(mostrado);
+    else visor.mostrarConjunto(mostrado, esCompleto());
+  }
 
   const n = nombre(hb);
   const p = pista(n, srs.nivelDe(tj));
   h(`
     ${etiqueta}
-    <h2>${tj.modo === 'aislado' ? t('queHueso') : t('queResaltado')}</h2>
+    <h2>${tj.modo === 'partes' ? t('queParte') : tj.modo === 'aislado' ? t('queHueso') : t('queResaltado')}</h2>
     <div id="respuesta"></div>
     <div class="botones">
       <button class="btn" id="nose">${t('noSe')}</button>
@@ -307,7 +323,7 @@ function corregir(tj: Tarjeta, respuestas: string[], etiqueta: string) {
   const acierto = r === 'exacto' || r === 'errata';
   const casi = r === 'sinLado';
   sonar(acierto);
-  visor.marcar(mostrado, acierto ? 'acierto' : 'error');
+  if (mostrado) visor.marcar(mostrado, acierto ? 'acierto' : 'error');
   h(`${etiqueta}${cajaResultado(r, nombre(hb), respuestas[0] ?? '')}${botonesNota(tj, acierto, casi)}${sinonimosHtml(sinonimos(hb), nombre(hb))}`);
   conectarNotas(tj, acierto, casi);
 }
@@ -473,52 +489,162 @@ function explorar() {
 }
 
 // ================= PARTES DE CADA HUESO =================
-// De momento solo la estructura: cada hueso (sin repetir lados ni vértebras) con su lista de partes.
-let partesSel: string | null = null;
-function partesUI() {
-  visor.mostrarTodos(regionVista, false);
+// Apartados de la guía → partes. La parte elegida se pinta en violeta.
+// Editor: si una zona está mal, se corrige tocando el hueso (cada toque pinta una bola).
+let partesAp: string | null = null;
+let partesParte: string | null = null;
+let partesHueso = 0;
+let borrador: Zona[] | null = null; // zonas mientras se corrige (null = no se está corrigiendo)
+let radioEd = 0.08;
+function partesUI(reencuadrar = true) {
   visor.clicable = true;
-  const unidad = (id: string) => {
-    const b = huesoPorId.get(id);
-    return b ? (b.tipo ?? b.par ?? b.id) : id;
-  };
-  const ids = [...new Set(deVista(regionVista).map((x) => unidad(x.id)))];
-  const sel = partesSel ? preguntaPorId.get(partesSel) : null;
-  const ps = sel ? PARTES[sel.id] ?? [] : [];
-  sel?.miembros.forEach((m) => visor.marcar(m, 'resalte'));
+  visor.onClick = null;
+  visor.onClickPunto = null;
+  const ap = partesAp ? apartadoPorId.get(partesAp) : null;
+  if (!ap) {
+    borrador = null;
+    visor.mostrarTodos(vistaEstudio(), false);
+    const secciones = [...new Set(APARTADOS.map((a) => a.seccion))];
+    const nCorr = Object.keys(zonasCorregidas()).length;
+    h(`
+      <h2>${t('partesTitulo')}</h2>
+      <div class="ayuda">${t('partesAyuda')}</div>
+      ${secciones
+        .map(
+          (s) =>
+            `<h3>${esc(s)}</h3><div class="lista-partes">${APARTADOS.filter((a) => a.seccion === s)
+              .map((a) => `<button class="fila" data-ap="${a.id}"><span>${esc(nombreAp(a))}</span><small>${a.partes.length} ${t('partesN')}</small></button>`)
+              .join('')}</div>`,
+        )
+        .join('')}
+      ${nCorr ? `<div class="ayuda">${t('correcciones')}: ${nCorr}</div><button class="btn" id="copiar">${t('copiarCorr')}</button>` : ''}`);
+    todos<HTMLButtonElement>('[data-ap]').forEach(
+      (b) =>
+        (b.onclick = () => {
+          partesAp = b.dataset.ap!;
+          partesParte = null;
+          partesHueso = 0;
+          partesUI();
+        }),
+    );
+    if (nCorr)
+      $('#copiar').onclick = async () => {
+        const txt = JSON.stringify(zonasCorregidas());
+        try {
+          await navigator.clipboard.writeText(txt);
+          $('#copiar').textContent = t('copiado');
+        } catch {
+          prompt(t('copiarCorr'), txt);
+        }
+      };
+    return;
+  }
+  const ids = huesosDe(ap, partesHueso);
+  const parte = ap.partes.find((p) => p.id === partesParte) ?? null;
+  const pp = parte ? partePorId.get(`PT:${ap.id}:${parte.id}`)! : null;
+  const zonasAhora = () => (borrador ? new Map(ids.map((id) => [id, borrador!])) : parte ? zonasDe(parte, ids, pp!.id) : new Map<string, Zona[]>());
+  if (reencuadrar) visor.mostrarParte(ids, zonasAhora(), parte?.dir);
+  else visor.pintarZonas(zonasAhora());
+  const variosHuesos = !ap.conjunto && ap.huesos.length > 1;
+  const corregida = pp ? !!zonasCorregidas()[pp.id] : false;
+
+  if (borrador && pp) {
+    // ---------- modo corregir ----------
+    h(`
+      <h2>${t('corrigiendo')}</h2>
+      <div class="objetivo"><div class="etiqueta">${esc(nombreAp(ap))}</div>${esc(mayus(nombre(pp)))}</div>
+      <div class="ayuda">${t('ayudaEditor')}</div>
+      <div class="fila"><span>${t('tamBola')}</span><input type="range" id="radio" min="0.02" max="0.25" step="0.01" value="${radioEd}"/></div>
+      <div class="botones">
+        <button class="btn" id="deshacer" ${borrador.length ? '' : 'disabled'}>${t('deshacer')}</button>
+        <button class="btn" id="cero">${t('deCero')}</button>
+      </div>
+      <div class="botones">
+        <button class="btn" id="cancelar">${t('cancelar')}</button>
+        <button class="btn principal" id="guardar">${t('guardar')}</button>
+      </div>`);
+    $<HTMLInputElement>('#radio').oninput = (e) => (radioEd = +(e.target as HTMLInputElement).value);
+    $('#deshacer').onclick = () => {
+      borrador!.pop();
+      partesUI(false);
+    };
+    $('#cero').onclick = () => {
+      borrador = [];
+      partesUI(false);
+    };
+    $('#cancelar').onclick = () => {
+      borrador = null;
+      partesUI(false);
+    };
+    $('#guardar').onclick = () => {
+      guardarZonas(pp.id, borrador);
+      borrador = null;
+      partesUI(false);
+    };
+    visor.onClickPunto = (_id, punto) => {
+      borrador!.push({ c: punto, r: radioEd });
+      partesUI(false);
+    };
+    return;
+  }
+
   h(`
-    <h2>${t('partesTitulo')}</h2>
-    ${chipsVista(regionVista)}
-    <div class="ayuda">${t('partesAyuda')}</div>
+    <button class="volver" id="atras">← ${t('partes')}</button>
+    <h2>${esc(nombreAp(ap))}</h2>
     ${
-      sel
-        ? `<div class="objetivo"><div class="etiqueta">${nombreGrupo(sel.grupo)}</div>${esc(mayus(nombre(sel)))}</div>
-           ${ps.length ? `<div class="chips">${ps.map((p) => `<span class="chip">${esc(idioma() === 'en' && p.en ? p.en : p.nombre)}</span>`).join('')}</div>` : `<div class="resultado">${t('sinPartes')}</div>`}`
-        : `<div class="resultado">${t('pinchaUno')}</div>`
+      pp
+        ? `<div class="objetivo"><div class="etiqueta">${t('parteSel')}${corregida ? ` · ${t('corregida')}` : ''}</div>${esc(mayus(nombre(pp)))}</div>${sinonimosHtml(sinonimos(pp), nombre(pp))}`
+        : `<div class="resultado">${t('eligeParte')}</div>`
     }
-    <h3>${t('lista')}</h3>
-    <div class="lista-partes">${ids
-      .map((id) => {
-        const p = preguntaPorId.get(id)!;
-        const n = PARTES[id]?.length ?? 0;
-        return `<button class="fila ${id === partesSel ? 'activo' : ''}" data-h="${id}"><span>${esc(mayus(nombre(p)))}</span><small>${n ? `${n} ${t('partesN')}` : t('sinPartesCorto')}</small></button>`;
+    <div class="botones">
+      ${variosHuesos ? `<button class="btn" id="otro">${t('otroEjemplo')}</button>` : ''}
+      ${pp && !ap.conjunto ? `<button class="btn" id="corregir">${t('corregirZona')}</button>` : ''}
+      ${corregida ? `<button class="btn" id="original">${t('zonaOriginal')}</button>` : ''}
+    </div>
+    <div class="lista-partes">${ap.partes
+      .map((p) => {
+        const q = partePorId.get(`PT:${ap.id}:${p.id}`)!;
+        return `<button class="fila ${p.id === partesParte ? 'activo' : ''}" data-parte="${p.id}"><span>${esc(mayus(nombre(q)))}</span></button>`;
       })
       .join('')}</div>`);
   const elegir = (id: string) => {
-    partesSel = unidad(id);
+    partesParte = id;
     partesUI();
   };
-  todos<HTMLButtonElement>('[data-h]').forEach((b) => (b.onclick = () => elegir(b.dataset.h!)));
-  todos<HTMLButtonElement>('[data-reg]').forEach(
-    (b) =>
-      (b.onclick = () => {
-        regionVista = b.dataset.reg as Vista;
-        partesSel = null;
-        visor.limpiarMarcas();
-        partesUI();
-      }),
-  );
-  visor.onClick = elegir;
+  todos<HTMLButtonElement>('[data-parte]').forEach((b) => (b.onclick = () => elegir(b.dataset.parte!)));
+  $('#atras').onclick = () => {
+    partesAp = null;
+    partesUI();
+  };
+  if (variosHuesos)
+    $('#otro').onclick = () => {
+      partesHueso = (partesHueso + 1) % ap.huesos.length;
+      partesUI();
+    };
+  if (pp && !ap.conjunto)
+    $('#corregir').onclick = () => {
+      borrador = [...(zonasDe(parte!, ids, pp.id).get(ids[0]) ?? [])];
+      partesUI(false);
+    };
+  if (corregida)
+    $('#original').onclick = () => {
+      guardarZonas(pp!.id, null);
+      partesUI(false);
+    };
+  // tocar el hueso: elige la parte más concreta que hay en ese punto
+  visor.onClickPunto = (id, punto) => {
+    const mn = visor.mallaNorm(id);
+    if (!mn) return;
+    let mejor: { id: string; tam: number } | null = null;
+    for (const p of ap.partes) {
+      const zs = zonasDe(p, [id], `PT:${ap.id}:${p.id}`).get(id) ?? [];
+      if (pesoEnPunto(mn, zs, punto) < 0.3) continue;
+      // si varias partes cubren el punto, gana la más pequeña (pedículo antes que arco vertebral)
+      const tam = zs.filter((z) => !z.menos).reduce((s, z) => s + (typeof z.r === 'number' ? z.r ** 3 : z.r[0] * z.r[1] * z.r[2]), 0);
+      if (!mejor || tam < mejor.tam) mejor = { id: p.id, tam };
+    }
+    if (mejor) elegir(mejor.id);
+  };
 }
 
 // ================= AJUSTES =================
@@ -664,6 +790,189 @@ function editor() {
 }
 
 // ================= ARRANQUE =================
+// ayuda para revisar zonas en desarrollo
+if (import.meta.env.DEV) {
+  (window as unknown as Record<string, unknown>).__visor = visor;
+  // dibuja N fotogramas aunque la pestaña esté oculta
+  (window as unknown as Record<string, unknown>).__dibujar = (n = 80) => {
+    for (let i = 0; i < n; i++) (visor as unknown as { frame: () => void }).frame();
+  };
+  // 4 vistas (delante, derecha, detrás, arriba) de la parte en una imagen
+  (window as unknown as Record<string, unknown>).__vistas = async (ap: string, parte: string, i = 0) => {
+    const w = window as unknown as Record<string, (...x: unknown[]) => unknown>;
+    let nombre: unknown;
+    if (ap.startsWith('#')) {
+      const id = ap.slice(1);
+      visor.mostrarParte([id], new Map());
+      w.__rayas(id, Number(parte));
+      nombre = `${id} eje ${['x', 'y', 'z'][Number(parte)]} (impares pintadas: 0.1-0.2, 0.3-0.4…)`;
+    } else nombre = await w.__parte(ap, parte, i);
+    const v = visor as unknown as { camera: import('three').PerspectiveCamera; controls: { target: import('three').Vector3; sincronizar: () => void }; renderer: import('three').WebGLRenderer; scene: import('three').Scene; camaraAnim: unknown };
+    visor.setMargen(1, 0);
+    visor.restablecerVista();
+    w.__dibujar(80);
+    v.camaraAnim = null;
+    const t = v.controls.target.clone();
+    const dist = v.camera.position.distanceTo(t);
+    const dirs: [number, number, number][] = [[0, 0.15, 1], [-1, 0.15, 0], [0, 0.15, -1], [0.001, 1, 0.001], [1, 0.15, 0], [0, -1, 0.001]];
+    const cv = document.createElement('canvas');
+    const W = 420, H = 300;
+    cv.width = W * 3;
+    cv.height = H * 2;
+    const g = cv.getContext('2d')!;
+    dirs.forEach((d, k) => {
+      const dv = new (t.constructor as typeof import('three').Vector3)(...d).normalize();
+      v.camera.position.copy(t).addScaledVector(dv, dist);
+      v.camera.up.set(0, 1, 0);
+      if (Math.abs(d[1]) > 0.9) v.camera.up.set(0, 0, d[1] > 0 ? -1 : 1);
+      v.camera.lookAt(t);
+      v.renderer.render(v.scene, v.camera);
+      const src = v.renderer.domElement;
+      const s = Math.min(src.width / W, src.height / H) * 0.55;
+      g.drawImage(src, (src.width - W * s) / 2, (src.height - H * s) / 2, W * s, H * s, (k % 3) * W, Math.floor(k / 3) * H, W, H);
+      g.fillStyle = '#fff';
+      g.font = '16px sans-serif';
+      g.fillText(['delante', 'derecha', 'detrás', 'arriba', 'izquierda', 'abajo'][k], (k % 3) * W + 8, Math.floor(k / 3) * H + 20);
+    });
+    g.fillText(String(nombre), 8, H * 2 - 10);
+    let img = document.getElementById('__img') as HTMLImageElement | null;
+    if (!img) {
+      img = document.createElement('img');
+      img.id = '__img';
+      img.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;z-index:99;background:#000';
+      document.body.append(img);
+    }
+    img.src = cv.toDataURL();
+    return nombre;
+  };
+  // rayas cada 0.1 en un eje (0 x, 1 y, 2 z) para leer coordenadas normalizadas; la raya 0.5 se pinta entera
+  (window as unknown as Record<string, unknown>).__rayas = (id: string, eje: number) => {
+    const v = visor as unknown as { mallaNorm: (id: string) => import('./zonas').MallaNorm; piezas: Map<string, { mesh: import('three').Mesh }>; pintados: Set<string> };
+    const mn = v.mallaNorm(id);
+    const n = mn.pos.length / 3;
+    const w = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const u = [0, 1, 2].map((k) => {
+        let x = (mn.pos[i * 3 + k] - mn.min[k]) / mn.tam[k];
+        if (k === 0 && mn.espejo) x = 1 - x;
+        return x;
+      });
+      if (eje < 3) {
+        const b = Math.floor(u[eje] * 10);
+        w[i] = Math.abs(u[eje] - 0.5) < 0.012 ? 0.35 : b % 2 ? 1 : 0;
+      } else {
+        // cuadrícula: líneas cada 0.1 en los dos ejes del plano (3: x-z, 4: y-z, 5: x-y)
+        const ejes = eje === 3 ? [0, 2] : eje === 4 ? [1, 2] : [0, 1];
+        const linea = (x: number) => {
+          const d = Math.abs(x * 10 - Math.round(x * 10));
+          return d < 0.09 ? (Math.round(x * 10) === 5 ? 1 : 0.75) : 0;
+        };
+        w[i] = Math.max(linea(u[ejes[0]]), linea(u[ejes[1]]));
+      }
+    }
+    const g = v.piezas.get(id)!.mesh.geometry;
+    g.setAttribute('parte', new THREE_BA(w, 1));
+    v.pintados.add(id);
+    (visor as unknown as { actualizarMateriales: () => void }).actualizarMateriales();
+  };
+  // una vista grande: dir = 'delante' | 'detras' | 'derecha' | 'izquierda' | 'arriba' | 'abajo' | [x,y,z]
+  (window as unknown as Record<string, unknown>).__una = async (ap: string, parte: string, dir: string | number[], i = 0) => {
+    const w = window as unknown as Record<string, (...x: unknown[]) => unknown>;
+    if (ap.startsWith('#')) {
+      visor.mostrarParte([ap.slice(1)], new Map());
+      w.__rayas(ap.slice(1), Number(parte));
+    } else await w.__parte(ap, parte, i);
+    const D: Record<string, number[]> = { delante: [0, 0.05, 1], detras: [0, 0.05, -1], derecha: [-1, 0.05, 0], izquierda: [1, 0.05, 0], arriba: [0.001, 1, 0.001], abajo: [0.001, -1, 0.001] };
+    const d = typeof dir === 'string' ? D[dir] : dir;
+    const v = visor as unknown as { camera: import('three').PerspectiveCamera; controls: { target: import('three').Vector3 }; renderer: import('three').WebGLRenderer; scene: import('three').Scene; camaraAnim: unknown };
+    visor.setMargen(1, 0);
+    visor.restablecerVista();
+    w.__dibujar(80);
+    v.camaraAnim = null;
+    const t = v.controls.target.clone();
+    const dist = v.camera.position.distanceTo(t) * 0.75;
+    const dv = t.clone().set(d[0], d[1], d[2]).normalize();
+    v.camera.position.copy(t).addScaledVector(dv, dist);
+    v.camera.up.set(0, 1, 0);
+    if (Math.abs(dv.y) > 0.9) v.camera.up.set(0, 0, dv.y > 0 ? -1 : 1);
+    v.camera.lookAt(t);
+    v.renderer.render(v.scene, v.camera);
+    let img = document.getElementById('__img') as HTMLImageElement | null;
+    if (!img) {
+      img = document.createElement('img');
+      img.id = '__img';
+      img.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;z-index:99;background:#000';
+      document.body.append(img);
+    }
+    img.src = v.renderer.domElement.toDataURL();
+    return 'ok';
+  };
+  // corte ASCII de la malla fina: eje 'x'|'y'|'z' a un nivel (0-1), grosor g
+  (window as unknown as Record<string, unknown>).__corte = (id: string, eje: string, niveles: number[], g = 0.02, W = 60, H = 30) => {
+    const mn = (visor as unknown as { mallaNorm: (id: string) => import('./zonas').MallaNorm }).mallaNorm(id);
+    const E = ({ x: 0, y: 1, z: 2 } as Record<string, number>)[eje];
+    const [a, b] = eje === 'y' ? [0, 2] : eje === 'z' ? [0, 1] : [2, 1];
+    const n = mn.pos.length / 3;
+    const u = (i: number, k: number) => {
+      let x = (mn.pos[i * 3 + k] - mn.min[k]) / mn.tam[k];
+      if (k === 0 && mn.espejo) x = 1 - x;
+      return x;
+    };
+    let out = `${id} tam ${mn.tam.map((t) => (t * 100).toFixed(0)).join('x')}mm  cols=${'xyz'[a]} filas=${'xyz'[b]}
+`;
+    for (const l of niveles) {
+      const grid = Array.from({ length: H }, () => Array(W).fill('.'));
+      for (let i = 0; i < n; i++) {
+        if (Math.abs(u(i, E) - l) > g) continue;
+        grid[Math.min(H - 1, Math.floor((1 - u(i, b)) * H))][Math.min(W - 1, Math.floor(u(i, a) * W))] = '#';
+      }
+      out += `--- ${eje}=${l}  (cols: cada 6 = 0.1)\n` + grid.map((r, i) => (1 - i / H).toFixed(2) + ' ' + r.join('')).join('\n') + '\n';
+    }
+    return out;
+  };
+  // varias partes en una imagen, cada una desde su vista de tarjeta
+  (window as unknown as Record<string, unknown>).__mosaico = async (ap: string, partes?: string[], i = 0) => {
+    const w = window as unknown as Record<string, (...x: unknown[]) => unknown>;
+    const { apartadoPorId } = await import('./data/partes');
+    const lista = partes ?? apartadoPorId.get(ap)!.partes.map((p) => p.id);
+    const W = 400, H = 300, cols = 3;
+    const cv = document.createElement('canvas');
+    cv.width = W * cols;
+    cv.height = H * Math.ceil(lista.length / cols);
+    const g = cv.getContext('2d')!;
+    const v = visor as unknown as { renderer: import('three').WebGLRenderer; scene: import('three').Scene; camera: import('three').Camera };
+    visor.setMargen(1, 0);
+    for (let k = 0; k < lista.length; k++) {
+      const nombre = await w.__parte(ap, lista[k], i);
+      w.__dibujar(90);
+      v.renderer.render(v.scene, v.camera);
+      const src = v.renderer.domElement;
+      const s = Math.min(src.width / W, src.height / H) * 0.9;
+      g.drawImage(src, (src.width - W * s) / 2, (src.height - H * s) / 2, W * s, H * s, (k % cols) * W, Math.floor(k / cols) * H, W, H);
+      g.fillStyle = '#fff';
+      g.font = '18px sans-serif';
+      g.fillText(String(nombre), (k % cols) * W + 8, Math.floor(k / cols) * H + 22);
+    }
+    let img = document.getElementById('__img') as HTMLImageElement | null;
+    if (!img) {
+      img = document.createElement('img');
+      img.id = '__img';
+      img.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;object-fit:contain;z-index:99;background:#000';
+      document.body.append(img);
+    }
+    img.src = cv.toDataURL();
+    return lista.length;
+  };
+  (window as unknown as Record<string, unknown>).__parte = async (ap: string, parte: string, i = 0) => {
+    const { apartadoPorId } = await import('./data/partes');
+    const a = apartadoPorId.get(ap)!;
+    const p = a.partes.find((x) => x.id === parte)!;
+    const ids = a.conjunto ? a.huesos : [a.huesos[i % a.huesos.length]];
+    const z = new Map(ids.map((id) => [id, Array.isArray(p.zonas) ? p.zonas : (p.zonas[id] ?? [])]));
+    visor.mostrarParte(ids, z, p.dir);
+    return p.nombre;
+  };
+}
 pintarBarra();
 h(`<h2>${t('cargando')}</h2>`);
 visor.setEstilo(srs.ajustes().estilo);

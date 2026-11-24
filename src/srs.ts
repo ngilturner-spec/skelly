@@ -1,13 +1,15 @@
 // Repetición espaciada (FSRS) + nivel de pista de cada tarjeta + estadísticas. Todo se guarda en el navegador.
 import { createEmptyCard, fsrs, Rating, type Card, type Grade } from 'ts-fsrs';
 import { HUESOS, REGIONES, type RegionId } from './data/huesos';
+import { PREGUNTAS_PARTES } from './data/partes';
 import { NIVEL_MAX } from './answer';
 
-export type Modo = 'aislado' | 'conjunto' | 'localizar';
+export type Modo = 'aislado' | 'conjunto' | 'localizar' | 'partes';
 export const MODOS: Record<Modo, string> = {
   aislado: 'Hueso aislado',
   conjunto: 'En conjunto',
   localizar: 'Localizar',
+  partes: 'Partes del hueso',
 };
 
 export interface Tarjeta {
@@ -31,6 +33,7 @@ export interface Ajustes {
   modos: Modo[];
   escalaLetra: number; // 0.85 – 1.4
   sonido: boolean;
+  versionModos?: number;
 }
 
 interface Guardado {
@@ -46,7 +49,7 @@ const f = fsrs({ enable_fuzz: true });
 function cargar(): Guardado {
   const base: Guardado = {
     estados: {},
-    ajustes: { estilo: 'realista', nuevasPorDia: 15, regiones: REGIONES.map((r) => r.id), modos: ['aislado', 'conjunto', 'localizar'], escalaLetra: 1, sonido: true },
+    ajustes: { estilo: 'realista', nuevasPorDia: 15, regiones: REGIONES.map((r) => r.id), modos: ['aislado', 'conjunto', 'localizar', 'partes'], escalaLetra: 1, sonido: true },
     hoy: { fecha: '', nuevas: 0 },
     historial: {},
   };
@@ -63,6 +66,9 @@ function cargar(): Guardado {
     const validas = new Set(REGIONES.map((r) => r.id as string));
     ajustes.regiones = [...new Set((ajustes.regiones ?? []).map((r) => ((r as string) === 'mano' ? 'superior' : r)))].filter((r) => validas.has(r));
     if (!ajustes.regiones.length) ajustes.regiones = base.ajustes.regiones;
+    // versiones antiguas: si tenías los 3 modos, se añade el nuevo de partes
+    if (!g.ajustes?.versionModos && ['aislado', 'conjunto', 'localizar'].every((m) => ajustes.modos.includes(m as Modo)) && !ajustes.modos.includes('partes')) ajustes.modos = [...ajustes.modos, 'partes'];
+    ajustes.versionModos = 2;
     return { ...base, ...g, ajustes };
   } catch {
     return base;
@@ -87,7 +93,9 @@ export function cambiarAjustes(a: Partial<Ajustes>) {
 function todasLasTarjetas(): Tarjeta[] {
   const a = datos.ajustes;
   const hs = HUESOS.filter((h) => a.regiones.includes(h.region));
-  return a.modos.flatMap((modo) => {
+  return a.modos.flatMap((modo): Tarjeta[] => {
+    if (modo === 'partes')
+      return PREGUNTAS_PARTES.filter((p) => a.regiones.includes(p.region)).map((p) => ({ clave: `${p.id}:partes`, hueso: p.id, modo }));
     // hueso aislado: una tarjeta por tipo/pareja (sin repetidos)
     // en conjunto: una por hueso · localizar: una por hueso, salvo vértebras/costillas (por tipo)
     const ids = new Set(hs.map((h) => (modo === 'conjunto' ? h.id : modo === 'aislado' ? (h.tipo ?? h.par ?? h.id) : (h.tipo ?? h.id))));
