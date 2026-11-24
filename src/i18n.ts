@@ -1,0 +1,237 @@
+// Idioma de la app y nombres de huesos (con los cambios que hagas en el editor).
+import { HUESOS, type Hueso } from './data/huesos';
+import { INGLES } from './data/ingles';
+
+export type Idioma = 'es' | 'en';
+const CLAVE_IDIOMA = 'skelly-idioma';
+const CLAVE_NOMBRES = 'skelly-nombres';
+
+let actual: Idioma = (localStorage.getItem(CLAVE_IDIOMA) as Idioma) || 'es';
+export const idioma = () => actual;
+export function cambiarIdioma(i: Idioma) {
+  actual = i;
+  localStorage.setItem(CLAVE_IDIOMA, i);
+  document.documentElement.lang = i;
+}
+document.documentElement.lang = actual;
+
+// ---------- nombres de huesos ----------
+interface Nombre {
+  nombre: string;
+  sinonimos: string[];
+}
+type Cambios = Record<string, Partial<Record<Idioma, Nombre>>>;
+let cambios: Cambios = JSON.parse(localStorage.getItem(CLAVE_NOMBRES) || '{}');
+
+function original(h: Hueso, i: Idioma): Nombre {
+  if (i === 'es') return { nombre: h.nombre, sinonimos: h.sinonimos };
+  const en = INGLES[h.id];
+  return en ? { nombre: en[0], sinonimos: en[1] } : { nombre: h.nombre, sinonimos: h.sinonimos };
+}
+
+export function nombreDe(h: Hueso, i: Idioma = actual): Nombre {
+  return cambios[h.id]?.[i] ?? original(h, i);
+}
+export const nombre = (h: Hueso) => nombreDe(h).nombre;
+export const sinonimos = (h: Hueso) => nombreDe(h).sinonimos;
+export const esEditado = (h: Hueso, i: Idioma = actual) => !!cambios[h.id]?.[i];
+
+export function guardarNombre(h: Hueso, n: Nombre, i: Idioma = actual) {
+  const limpio = { nombre: n.nombre.trim(), sinonimos: n.sinonimos.map((s) => s.trim()).filter(Boolean) };
+  const o = original(h, i);
+  const igual = limpio.nombre === o.nombre && limpio.sinonimos.join('|') === o.sinonimos.join('|');
+  cambios[h.id] ??= {};
+  if (igual || !limpio.nombre) delete cambios[h.id][i];
+  else cambios[h.id][i] = limpio;
+  localStorage.setItem(CLAVE_NOMBRES, JSON.stringify(cambios));
+}
+
+export function restaurarNombres() {
+  cambios = {};
+  localStorage.removeItem(CLAVE_NOMBRES);
+}
+
+export const huesosEditados = () => HUESOS.filter((h) => esEditado(h)).length;
+
+// ---------- textos de la interfaz ----------
+const ES = {
+  inicio: 'Inicio',
+  estudiar: 'Estudiar',
+  explorar: 'Explorar',
+  ajustes: 'Ajustes',
+  hola: 'Hola 👋',
+  racha: 'días seguidos',
+  rachaUno: 'día seguido',
+  paraHoy: 'Para hoy',
+  nuevas: 'nuevas',
+  pendientes: 'pendientes',
+  dominadas: 'dominadas',
+  regiones: 'Regiones',
+  tipo: 'Tipo de tarjeta',
+  empezar: 'Empezar',
+  nadaHoy: 'Nada pendiente hoy',
+  estudiarMas: 'Aprender 10 nuevas más',
+  ultimos14: 'Últimos 14 días',
+  aciertos: 'aciertos (30 días)',
+  sinDatos: 'Aún no hay datos. ¡Empieza tu primera sesión!',
+  todas: 'Todas',
+  mezcla: 'Mezcla',
+  aislado: 'Hueso aislado',
+  conjunto: 'En conjunto',
+  localizar: 'Localizar',
+  nueva: 'NUEVA',
+  queHueso: '¿Qué hueso es este?',
+  queResaltado: '¿Qué hueso está resaltado?',
+  pincha: 'Pincha el hueso:',
+  noSe: 'No lo sé',
+  comprobar: 'Comprobar',
+  escribe: 'Escribe sobre los guiones…',
+  escribeLibre: 'Escribe el nombre…',
+  ayudaGirar: 'Arrastra para girar en cualquier dirección · rueda o pellizco para ampliar.',
+  ayudaPinchar: 'Arrastra para girar. Un toque corto para elegir.',
+  correcto: '¡Correcto!',
+  errata: 'Bien, con una errata. Se escribe:',
+  sinLado: 'Casi: falta el lado. Es:',
+  incorrecto: 'No es correcto. Es:',
+  aprende: 'Apréndetelo:',
+  tu: 'Tú',
+  tambien: 'También vale',
+  otraVez: 'Otra vez',
+  loSabia: 'Lo sabía',
+  dificil: 'Difícil',
+  bien: 'Bien',
+  facil: 'Fácil',
+  eseEs: 'Ese es',
+  estaEn: 'está resaltado en violeta.',
+  hecho: '¡Hecho por hoy!',
+  hechoTexto: 'No quedan tarjetas pendientes con esta selección.',
+  volver: 'Volver al inicio',
+  explorarTitulo: 'Explorar',
+  explorarAyuda: 'Pincha un hueso para ver su nombre. Úsalo para conocerlos antes de estudiar.',
+  pinchaUno: 'Pincha un hueso…',
+  lista: 'Lista',
+  estilo3d: 'Estilo de los huesos',
+  realista: 'Realista',
+  arcilla: 'Arcilla',
+  atlas: 'Atlas',
+  colores: 'Colores',
+  idioma: 'Idioma',
+  tamLetra: 'Tamaño de letra',
+  sonido: 'Sonidos',
+  nuevasDia: 'Tarjetas nuevas al día',
+  editor: 'Editor de nombres',
+  editorAyuda: 'Cambia el nombre que se pregunta y las respuestas que también valen (separadas por comas). Se guarda al salir del campo.',
+  buscar: 'Buscar hueso…',
+  nombreCampo: 'Nombre',
+  sinonimosCampo: 'También vale',
+  restaurar: 'Restaurar nombres originales',
+  restaurarSeguro: '¿Restaurar todos los nombres originales?',
+  editados: 'editados',
+  borrar: 'Borrar todo mi progreso',
+  borrarSeguro: '¿Seguro? Se borrará todo tu progreso de repaso.',
+  creditos: 'Modelos 3D: BodyParts3D © The Database Center for Life Science (CC BY-SA 2.1 JP). Cóccix: NIH 3D 3DPX-016830 (CC BY 4.0). Suavizados para esta app.',
+  cargando: 'Cargando modelos…',
+  errorCarga: 'Error al cargar los modelos',
+  on: 'Sí',
+  off: 'No',
+};
+type Textos = typeof ES;
+
+const EN: Textos = {
+  inicio: 'Home',
+  estudiar: 'Study',
+  explorar: 'Explore',
+  ajustes: 'Settings',
+  hola: 'Hi 👋',
+  racha: 'day streak',
+  rachaUno: 'day streak',
+  paraHoy: 'Today',
+  nuevas: 'new',
+  pendientes: 'due',
+  dominadas: 'mastered',
+  regiones: 'Regions',
+  tipo: 'Card type',
+  empezar: 'Start',
+  nadaHoy: 'Nothing due today',
+  estudiarMas: 'Learn 10 more new cards',
+  ultimos14: 'Last 14 days',
+  aciertos: 'correct (30 days)',
+  sinDatos: 'No data yet. Start your first session!',
+  todas: 'All',
+  mezcla: 'Mixed',
+  aislado: 'Single bone',
+  conjunto: 'In context',
+  localizar: 'Find it',
+  nueva: 'NEW',
+  queHueso: 'Which bone is this?',
+  queResaltado: 'Which bone is highlighted?',
+  pincha: 'Tap the bone:',
+  noSe: "I don't know",
+  comprobar: 'Check',
+  escribe: 'Type over the blanks…',
+  escribeLibre: 'Type the name…',
+  ayudaGirar: 'Drag to rotate in any direction · scroll or pinch to zoom.',
+  ayudaPinchar: 'Drag to rotate. Short tap to choose.',
+  correcto: 'Correct!',
+  errata: 'Right, with a typo. It is spelled:',
+  sinLado: 'Almost: the side is missing. It is:',
+  incorrecto: 'Not quite. It is:',
+  aprende: 'Learn it:',
+  tu: 'You',
+  tambien: 'Also accepted',
+  otraVez: 'Again',
+  loSabia: 'I knew it',
+  dificil: 'Hard',
+  bien: 'Good',
+  facil: 'Easy',
+  eseEs: 'That is the',
+  estaEn: 'is highlighted in violet.',
+  hecho: 'All done for today!',
+  hechoTexto: 'No cards left for this selection.',
+  volver: 'Back to home',
+  explorarTitulo: 'Explore',
+  explorarAyuda: 'Tap a bone to see its name. Use it to get to know them before studying.',
+  pinchaUno: 'Tap a bone…',
+  lista: 'List',
+  estilo3d: 'Bone style',
+  realista: 'Realistic',
+  arcilla: 'Clay',
+  atlas: 'Atlas',
+  colores: 'Colours',
+  idioma: 'Language',
+  tamLetra: 'Text size',
+  sonido: 'Sounds',
+  nuevasDia: 'New cards per day',
+  editor: 'Name editor',
+  editorAyuda: 'Change the name being asked and other accepted answers (comma separated). Saved when you leave the field.',
+  buscar: 'Search bone…',
+  nombreCampo: 'Name',
+  sinonimosCampo: 'Also accepted',
+  restaurar: 'Restore original names',
+  restaurarSeguro: 'Restore all original names?',
+  editados: 'edited',
+  borrar: 'Delete all my progress',
+  borrarSeguro: 'Are you sure? All your review progress will be deleted.',
+  creditos: '3D models: BodyParts3D © The Database Center for Life Science (CC BY-SA 2.1 JP). Coccyx: NIH 3D 3DPX-016830 (CC BY 4.0). Smoothed for this app.',
+  cargando: 'Loading models…',
+  errorCarga: 'Error loading the models',
+  on: 'On',
+  off: 'Off',
+};
+
+const GRUPOS_EN: Record<string, string> = {
+  carpo: 'Carpals',
+  metacarpo: 'Metacarpals',
+  falanges: 'Phalanges',
+  cervicales: 'Cervical vertebrae',
+  toracicas: 'Thoracic vertebrae',
+  lumbares: 'Lumbar vertebrae',
+  sacro: 'Sacrum and coccyx',
+  esternon: 'Sternum',
+  costillas: 'Ribs',
+};
+const REGIONES_EN: Record<string, string> = { mano: 'Hand', tronco: 'Spine and thorax' };
+
+export const t = (k: keyof Textos) => (actual === 'en' ? EN : ES)[k];
+export const tGrupo = (id: string, es: string) => (actual === 'en' ? GRUPOS_EN[id] ?? es : es);
+export const tRegion = (id: string, es: string) => (actual === 'en' ? REGIONES_EN[id] ?? es : es);
