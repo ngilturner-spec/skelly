@@ -10,14 +10,14 @@ import * as srs from './srs';
 import { BufferAttribute as THREE_BA } from 'three';
 import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, anadirParte, eliminarParte, esPropia, borradasEn, recuperarBorradas, cambiosPropios, hayCambiosPropios, type Apartado } from './data/partes';
 import type { Zona } from './zonas';
-import { pesoEnPunto, aNormal } from './zonas';
+import { pesoEnPunto, aNormal, pesos } from './zonas';
 import type { Estilo, Modo, Tarjeta } from './srs';
 
 const panel = document.querySelector<HTMLElement>('#panel')!;
 const barra = document.querySelector<HTMLElement>('#barra')!;
 const visor = new Visor(document.querySelector<HTMLElement>('#visor')!);
 
-type Pantalla = 'inicio' | 'estudio' | 'explorar' | 'partes' | 'ajustes' | 'editor' | 'zona';
+type Pantalla = 'inicio' | 'estudio' | 'explorar' | 'partes' | 'ajustes' | 'editor' | 'zona' | 'examen';
 let pantalla: Pantalla = 'inicio';
 let teclas: ((e: KeyboardEvent) => void) | null = null;
 let huesoAnterior: string | undefined;
@@ -54,7 +54,7 @@ const $ = <T extends HTMLElement>(sel: string) => panel.querySelector<T>(sel)!;
 const todos = <T extends HTMLElement>(sel: string, raiz: ParentNode = panel) => [...raiz.querySelectorAll<T>(sel)];
 const nombreRegion = (id: RegionId): string => tRegion(id, REGIONES.find((r) => r.id === id)!.nombre);
 const nombreGrupo = (g: Grupo) => tGrupo(g, GRUPOS[g]);
-const MODOS_T: Record<Modo, () => string> = { aislado: () => t('aislado'), conjunto: () => t('conjunto'), localizar: () => t('localizar'), partes: () => t('partesModo') };
+const MODOS_T: Record<Modo, () => string> = { aislado: () => t('aislado'), conjunto: () => t('conjunto'), localizar: () => t('localizar'), partes: () => t('partesModo'), localizarParte: () => t('localizarParteModo') };
 const TODOS_MODOS = Object.keys(MODOS_T) as Modo[];
 const nombreAp = (a: Apartado) => (idioma() === 'en' ? a.en : a.nombre);
 
@@ -73,6 +73,18 @@ document.querySelector('#restablecer')!.addEventListener('click', () => visor.re
 
 // ================= BARRA SUPERIOR =================
 function pintarBarra() {
+  if (pantalla === 'examen' && examen && examen.i < examen.preguntas.length) {
+    const pct = (100 * examen.i) / examen.preguntas.length;
+    barra.innerHTML = `
+      <span class="logo ocultar-movil"><span class="punto"></span>skelly</span>
+      <button class="icono" id="salir" title="${t('volver')}">←</button>
+      <div class="progreso"><div style="width:${pct}%"></div></div>
+      <span class="zona-barra">${t('examen')} · ${esc(nombreZona(examen.grupos))}</span>`;
+    barra.querySelector<HTMLButtonElement>('#salir')!.onclick = () => {
+      if (confirm(t('salirExamen'))) ir('examen');
+    };
+    return;
+  }
   if (pantalla === 'estudio') {
     const a = srs.ajustes();
     const regionSel = a.regiones.length === REGIONES.length ? 'todas' : a.regiones[0];
@@ -84,8 +96,8 @@ function pintarBarra() {
       <span class="logo ocultar-movil"><span class="punto"></span>skelly</span>
       <button class="icono" id="salir" title="${t('volver')}">←</button>
       <div class="progreso"><div style="width:${pct}%"></div></div>
-      <span class="zona-barra">${esc(nombreZona(foco.grupos))} · ${TIPOS_ZONA[foco.tipo]()}</span>`;
-      barra.querySelector<HTMLButtonElement>('#salir')!.onclick = () => ir('zona');
+      <span class="zona-barra">${'fallos' in foco ? t('misFallos') : `${esc(nombreZona(foco.grupos))} · ${TIPOS_ZONA[foco.tipo]()}`}</span>`;
+      barra.querySelector<HTMLButtonElement>('#salir')!.onclick = () => ir('fallos' in foco ? 'inicio' : 'zona');
       return;
     }
     barra.innerHTML = `
@@ -123,12 +135,15 @@ function pintarBarra() {
   ];
   barra.innerHTML = `
     <span class="logo"><span class="punto"></span>skelly</span>
-    <nav>${pest.map(([p, n]) => `<button data-p="${p}" class="${pantalla === p || (p === 'ajustes' && pantalla === 'editor') || (p === 'inicio' && pantalla === 'zona') ? 'activo' : ''}">${n}</button>`).join('')}</nav>`;
+    <nav>${pest.map(([p, n]) => `<button data-p="${p}" class="${pantalla === p || (p === 'ajustes' && pantalla === 'editor') || (p === 'inicio' && (pantalla === 'zona' || pantalla === 'examen')) ? 'activo' : ''}">${n}</button>`).join('')}</nav>`;
   todos<HTMLButtonElement>('[data-p]', barra).forEach((b) => (b.onclick = () => ir(b.dataset.p as Pantalla)));
 }
 
 function ir(p: Pantalla) {
   if (p !== 'estudio') srs.enfocar(null);
+  pararReloj();
+  examen = null;
+  visor.onClickPunto = null;
   pantalla = p;
   teclas = null;
   visor.clicable = false;
@@ -141,6 +156,7 @@ function ir(p: Pantalla) {
   else if (p === 'partes') partesUI();
   else if (p === 'ajustes') ajustesUI();
   else if (p === 'zona') zonaUI();
+  else if (p === 'examen') examenUI();
   else editor();
 }
 
@@ -154,6 +170,7 @@ function inicio() {
   const max = Math.max(1, ...dias.map((d) => d.repasos));
   const pct = srs.porcentajeAciertos();
   const hayAlgo = c.pendientes + c.nuevasHoy > 0;
+  const nFallos = srs.fallosRecientes().length;
   h(`
     <h1>${t('hola')}</h1>
     <div class="racha"><span class="fuego"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M12 2c1 3.5 5 5.5 5 11a5 5 0 0 1-10 0c0-2.5 1.2-4 2.5-5 .2 1.6.9 2.6 2 3C11 8 11 5 12 2z"/></svg></span><div><b>${r}</b> ${r === 1 ? t('rachaUno') : t('racha')}</div></div>
@@ -170,6 +187,8 @@ function inicio() {
     <div class="botones">
       ${hayAlgo ? `<button class="btn principal grande" id="empezar">${t('empezar')}</button>` : `<button class="btn grande" id="mas">${t('estudiarMas')}</button>`}
       <button class="btn grande" id="zona">${t('repasarZona')}</button>
+      ${nFallos ? `<button class="btn grande" id="fallos">${t('repasarFallos')} <small>${nFallos}</small></button>` : ''}
+      <button class="btn grande" id="examen">${t('examen')}</button>
     </div>
     <h3>${t('ultimos14')}</h3>
     ${
@@ -194,6 +213,12 @@ function inicio() {
       }),
   );
   $('#zona').onclick = () => ir('zona');
+  $('#examen').onclick = () => ir('examen');
+  if (nFallos)
+    $('#fallos').onclick = () => {
+      srs.enfocar({ fallos: true });
+      empezarSesion();
+    };
   if (hayAlgo) $('#empezar').onclick = () => empezarSesion();
   else
     $('#mas').onclick = () => {
@@ -208,8 +233,11 @@ function inicio() {
 function empezarSesion() {
   const c = srs.contadores();
   // repasando una zona sin nada pendiente: se repasan unas cuantas por adelantado
-  const extra = srs.focoActual() && !(c.pendientes + c.nuevasHoy) ? Math.min(20, c.total) : 0;
-  sesion = { objetivo: Math.max(1, c.pendientes + c.nuevasHoy + extra), hechas: 0 };
+  // mis fallos: todos los fallados
+  const foco = srs.focoActual();
+  const base = c.pendientes + c.nuevasHoy;
+  const objetivo = foco && 'fallos' in foco ? c.total : foco && !base ? Math.min(20, c.total) : base;
+  sesion = { objetivo: Math.max(1, objetivo), hechas: 0 };
   ir('estudio');
 }
 
@@ -231,6 +259,7 @@ function siguienteTarjeta() {
   const etiqueta = etiquetaDe(tj);
 
   if (tj.modo === 'localizar') return tarjetaLocalizar(tj, etiqueta);
+  if (tj.modo === 'localizarParte') return tarjetaLocalizarParte(tj, etiqueta);
   const pt = partePorId.get(tj.hueso);
   if (pt) {
     // parte de un hueso: se pinta en violeta sobre el hueso
@@ -367,7 +396,7 @@ function botonesNota(tj: Tarjeta, acierto: boolean, casi = false) {
   if (!acierto && !casi)
     return `<div class="botones">
       <button class="btn again principal" data-n="${Rating.Again}">${t('otraVez')} <small>${iv[Rating.Again]} · Enter</small></button>
-      ${tj.modo !== 'localizar' ? `<button class="btn hard" data-n="${Rating.Hard}">${t('loSabia')} <small>${iv[Rating.Hard]}</small></button>` : ''}
+      ${tj.modo !== 'localizar' && tj.modo !== 'localizarParte' ? `<button class="btn hard" data-n="${Rating.Hard}">${t('loSabia')} <small>${iv[Rating.Hard]}</small></button>` : ''}
     </div>`;
   if (casi)
     return `<div class="botones">
@@ -429,6 +458,52 @@ function tarjetaLocalizar(tj: Tarjeta, etiqueta: string) {
   $('#nose').onclick = () => resolver(null);
 }
 
+/** Localizar la parte: se ve el hueso sin pintar y hay que tocar dónde está la parte. */
+function tarjetaLocalizarParte(tj: Tarjeta, etiqueta: string) {
+  const pt = partePorId.get(tj.hueso)!;
+  const ids = huesosDe(pt.apartado);
+  const zonas = zonasDe(pt.parte, ids, pt.id);
+  mostrado = '';
+  visor.mostrarParte(ids, new Map(), pt.parte.dir);
+  visor.clicable = true;
+  h(`
+    ${etiqueta}
+    <h2>${t('tocaParte')}</h2>
+    <div class="objetivo">${esc(mayus(nombre(pt)))}</div>
+    <div class="botones"><button class="btn" id="nose">${t('noSe')}</button></div>
+    <div class="ayuda">${t('ayudaPinchar')}</div>`);
+  const resolver = (id: string | null, punto: [number, number, number] | null) => {
+    visor.clicable = false;
+    visor.onClickPunto = null;
+    visor.quitarHover();
+    const ok = !!id && !!punto && tocaLaParte(id, punto, zonas.get(id));
+    sonar(ok);
+    // se enseña dónde estaba
+    visor.pintarZonas(zonas);
+    const caja = ok
+      ? `<div class="resultado bien">✓ ${t('correcto')}<span class="correcto">${esc(mayus(nombre(pt)))}</span></div>`
+      : `<div class="resultado mal">${t('parteAqui')}<span class="correcto">${esc(mayus(nombre(pt)))}</span></div>`;
+    h(`${etiqueta}${caja}${botonesNota(tj, ok)}${sinonimosHtml(sinonimos(pt), nombre(pt))}`);
+    conectarNotas(tj, ok);
+  };
+  visor.onClickPunto = (id, punto) => resolver(id, punto);
+  $('#nose').onclick = () => resolver(null, null);
+}
+/** ¿El punto tocado cae en la parte o muy cerca (6 mm o un 4 % del hueso)? */
+function tocaLaParte(id: string, punto: [number, number, number], zs?: Zona[]) {
+  const m = visor.mallaNorm(id);
+  if (!m || !zs?.length) return false;
+  const w = pesos(m, zs);
+  const x = m.espejo ? 1 - punto[0] : punto[0];
+  const p = [m.min[0] + x * m.tam[0], m.min[1] + punto[1] * m.tam[1], m.min[2] + punto[2] * m.tam[2]];
+  const tol = Math.max(0.06, 0.04 * m.maxTam);
+  for (let i = 0; i < w.length; i++) {
+    if (w[i] < 0.5) continue;
+    if (Math.hypot(m.pos[i * 3] - p[0], m.pos[i * 3 + 1] - p[1], m.pos[i * 3 + 2] - p[2]) < tol) return true;
+  }
+  return false;
+}
+
 function terminado() {
   sesion.hechas = sesion.objetivo;
   pintarBarra();
@@ -437,12 +512,12 @@ function terminado() {
   h(`
     <h1>${t('hecho')}</h1>
     <p class="ayuda">${t('hechoTexto')}</p>
-    ${srs.focoActual() ? `<div class="botones"><button class="btn principal" id="otraVez">${t('zonaOtraVez')}</button><button class="btn" id="otraZona">${t('repasarZona')}</button></div>` : ''}
+    ${srs.focoActual() ? `<div class="botones"><button class="btn principal" id="otraVez">${t('zonaOtraVez')}</button>${'fallos' in srs.focoActual()! ? '' : `<button class="btn" id="otraZona">${t('repasarZona')}</button>`}</div>` : ''}
     ${c.sinVer && !srs.focoActual() ? `<div class="botones"><button class="btn principal" id="mas">${t('estudiarMas')}</button></div>` : ''}
     <div class="botones"><button class="btn" id="volver">${t('volver')}</button></div>`);
   if (srs.focoActual()) {
     $('#otraVez').onclick = () => empezarSesion();
-    $('#otraZona').onclick = () => ir('zona');
+    $('#otraZona')?.addEventListener('click', () => ir('zona'));
   } else if (c.sinVer)
     $('#mas').onclick = () => {
       srs.masNuevasHoy(10);
@@ -499,6 +574,153 @@ function zonaUI() {
     };
   });
   $('#volver').onclick = () => ir('inicio');
+}
+
+// ================= EXAMEN PRÁCTICO =================
+// Como el examen de disección: sin pistas, con tiempo y nota al final. No cambia los repasos (solo guarda los fallos).
+const examenCfg = { n: 20, seg: 45 };
+let examen: { preguntas: Tarjeta[]; i: number; res: { tj: Tarjeta; resp: string; ok: boolean }[]; reloj: number; grupos: Grupo[] } | null = null;
+function pararReloj() {
+  if (examen?.reloj) {
+    clearInterval(examen.reloj);
+    examen.reloj = 0;
+  }
+}
+const preguntasExamen = (gs: Grupo[]) => srs.tarjetasDeZona(gs, tipoZona, ['aislado', 'partes']);
+function barajar<T>(xs: T[]) {
+  const a = [...xs];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function examenUI() {
+  visor.mostrarTodos('completo');
+  const grupos = Object.keys(GRUPOS) as Grupo[];
+  const boton = (gs: Grupo[], txt: string) => {
+    const k = preguntasExamen(gs).length;
+    return `<button class="chip" data-zg="${gs.join(',')}" ${k ? '' : 'disabled'}>${esc(txt)} <small>${k}</small></button>`;
+  };
+  const chip = (attr: string, v: number, activo: boolean, txt: string) => `<button class="chip ${activo ? 'activo' : ''}" ${attr}="${v}">${txt}</button>`;
+  h(`
+    <h2>${t('examen')}</h2>
+    <div class="ayuda">${t('examenAyuda')}</div>
+    <div class="chips">${(Object.keys(TIPOS_ZONA) as srs.TipoZona[]).map((k) => `<button class="chip ${tipoZona === k ? 'activo' : ''}" data-tz="${k}">${TIPOS_ZONA[k]()}</button>`).join('')}</div>
+    <h3>${t('examenPreguntas')}</h3>
+    <div class="chips">${[10, 20, 30].map((n) => chip('data-en', n, examenCfg.n === n, String(n))).join('')}</div>
+    <h3>${t('examenTiempo')}</h3>
+    <div class="chips">${[30, 45, 60, 0].map((n) => chip('data-es', n, examenCfg.seg === n, n ? `${n} s` : t('sinLimite'))).join('')}</div>
+    <div class="ayuda">${t('examenZona')}</div>
+    ${REGIONES.map((r) => {
+      const gs = grupos.filter((g) => regionDeGrupo(g) === r.id);
+      return `<h3>${nombreRegion(r.id)}</h3><div class="chips">${boton(gs, t('zonaToda'))}${gs.map((g) => boton([g], nombreGrupo(g))).join('')}</div>`;
+    }).join('')}
+    <div class="botones"><button class="btn" id="volver">${t('volver')}</button></div>`);
+  todos<HTMLButtonElement>('[data-tz]').forEach((b) => (b.onclick = () => ((tipoZona = b.dataset.tz as srs.TipoZona), examenUI())));
+  todos<HTMLButtonElement>('[data-en]').forEach((b) => (b.onclick = () => ((examenCfg.n = Number(b.dataset.en)), examenUI())));
+  todos<HTMLButtonElement>('[data-es]').forEach((b) => (b.onclick = () => ((examenCfg.seg = Number(b.dataset.es)), examenUI())));
+  todos<HTMLButtonElement>('[data-zg]').forEach((b) => {
+    const gs = b.dataset.zg!.split(',') as Grupo[];
+    b.onpointerenter = () => {
+      visor.limpiarMarcas();
+      HUESOS.filter((x) => gs.includes(x.grupo)).forEach((x) => visor.marcar(x.id, 'resalte'));
+    };
+    b.onpointerleave = () => visor.limpiarMarcas();
+    b.onclick = () => {
+      visor.limpiarMarcas();
+      examen = { preguntas: barajar(preguntasExamen(gs)).slice(0, examenCfg.n), i: 0, res: [], reloj: 0, grupos: gs };
+      preguntaExamen();
+    };
+  });
+  $('#volver').onclick = () => ir('inicio');
+}
+function preguntaExamen() {
+  const ex = examen;
+  if (!ex) return;
+  pararReloj();
+  if (ex.i >= ex.preguntas.length) return resultadoExamen();
+  pintarBarra();
+  const tj = ex.preguntas[ex.i];
+  const hb = preguntaDe(tj);
+  const pt = partePorId.get(tj.hueso);
+  if (pt) {
+    const ids = huesosDe(pt.apartado);
+    visor.mostrarParte(ids, zonasDe(pt.parte, ids, pt.id), pt.parte.dir);
+  } else visor.mostrarAislado(azar(hb.miembros));
+  h(`
+    <div class="etiqueta">${t('examen')} · ${ex.i + 1}/${ex.preguntas.length}</div>
+    <h2>${pt ? t('queParte') : t('queHueso')}</h2>
+    ${examenCfg.seg ? '<div class="reloj"><div id="reloj"></div></div><div class="ayuda" id="segs"></div>' : ''}
+    <div id="respuesta"></div>
+    <div class="botones">
+      <button class="btn" id="saltar">${t('saltar')}</button>
+      <button class="btn principal" id="ok">${t('siguiente')} <small>Enter</small></button>
+    </div>`);
+  // sin pistas, como en el examen
+  const campo = crearCampo($('#respuesta'), nombre(hb), null);
+  let hecho = false;
+  const enviar = (saltar: boolean) => {
+    if (hecho || examen !== ex) return;
+    hecho = true;
+    pararReloj();
+    const resp = saltar ? '' : campo.valores()[0];
+    const ok = !!resp.trim() && comprobarVarias(hb, campo.valores()) !== 'mal';
+    ex.res.push({ tj, resp, ok });
+    ex.i++;
+    preguntaExamen();
+  };
+  $('#ok').onclick = () => enviar(false);
+  $('#saltar').onclick = () => enviar(true);
+  teclas = (e) => {
+    if (e.key === 'Enter') enviar(false);
+  };
+  if (examenCfg.seg) {
+    const fin = Date.now() + examenCfg.seg * 1000;
+    const tick = () => {
+      const queda = Math.max(0, fin - Date.now());
+      const barraR = document.getElementById('reloj');
+      if (barraR) barraR.style.width = `${(100 * queda) / (examenCfg.seg * 1000)}%`;
+      const txt = document.getElementById('segs');
+      if (txt) txt.textContent = `${Math.ceil(queda / 1000)} s`;
+      if (queda <= 0) enviar(false);
+    };
+    tick();
+    ex.reloj = window.setInterval(tick, 200);
+  }
+}
+function resultadoExamen() {
+  const ex = examen!;
+  pararReloj();
+  teclas = null;
+  const n = ex.res.length;
+  const bien = ex.res.filter((r) => r.ok).length;
+  const nota = n ? Math.round((100 * bien) / n) / 10 : 0;
+  // lo fallado va a «mis fallos»
+  ex.res.filter((r) => !r.ok).forEach((r) => srs.marcarFallo(r.tj));
+  sonar(nota >= 5);
+  pintarBarra();
+  visor.mostrarTodos('completo');
+  h(`
+    <h1>${t('notaExamen')}: ${nota.toLocaleString(idioma())} / 10</h1>
+    <p class="ayuda">${t('acertadas')}: ${bien} / ${n}</p>
+    <div class="lista-examen">${ex.res
+      .map((r) => {
+        const hb = preguntaDe(r.tj);
+        return `<div class="fila ${r.ok ? 'bien' : 'mal'}"><span class="marca">${r.ok ? '✓' : '✗'}</span><div><b>${esc(mayus(nombre(hb)))}</b>${r.ok ? '' : `<div class="ayuda">${t('tu')}: ${esc(r.resp.trim() || '—')}</div>`}</div></div>`;
+      })
+      .join('')}</div>
+    <div class="botones">
+      ${bien < n ? `<button class="btn principal" id="fallosEx">${t('repasarFallos')}</button>` : ''}
+      <button class="btn" id="otroEx">${t('otroExamen')}</button>
+    </div>`);
+  if (bien < n)
+    $('#fallosEx').onclick = () => {
+      examen = null;
+      srs.enfocar({ fallos: true });
+      empezarSesion();
+    };
+  $('#otroEx').onclick = () => ir('examen');
 }
 
 // ================= EXPLORAR =================

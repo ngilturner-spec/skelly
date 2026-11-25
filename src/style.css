@@ -720,3 +720,12 @@ input[type='number'] {
 .chip:disabled { opacity: 0.4; cursor: default; }
 .chip small { color: var(--tenue); margin-left: 0.2em; }
 .zona-barra { font-size: 0.9rem; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* examen práctico */
+.reloj { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; margin: 0.4rem 0 0.2rem; }
+.reloj > div { height: 100%; background: var(--violeta); transition: width 0.2s linear; }
+.lista-examen { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.8rem 0; }
+.lista-examen .fila { display: flex; gap: 0.6rem; align-items: flex-start; padding: 0.45rem 0.6rem; border-radius: 10px; background: rgba(255, 255, 255, 0.04); }
+.lista-examen .marca { font-weight: 700; width: 1.2em; }
+.lista-examen .bien .marca { color: #4ade80; }
+.lista-examen .mal .marca { color: #f87171; }
