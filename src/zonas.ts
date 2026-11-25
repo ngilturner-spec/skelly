@@ -24,6 +24,10 @@ export interface Zona {
   fuera?: [number, number, number];
   /** pintar solo donde la superficie mira hacia este punto, en horizontal (cara interna) */
   dentro?: [number, number, number];
+  /** pintar solo donde este hueso toca a estos otros (suturas, sincondrosis…) */
+  toca?: string[];
+  /** ancho de la franja de «toca», en mm (por defecto 3) */
+  ancho?: number;
 }
 
 /** Datos de la malla ya preparados para pintar rápido. */
@@ -36,6 +40,50 @@ export interface MallaNorm {
   espejo: boolean;
   /** normales en el mundo (opcional) */
   nor?: Float32Array;
+  /** id del hueso (para no tocarse a sí mismo) */
+  id?: string;
+}
+
+/** Cómo encontrar la malla de otro hueso (lo pone el visor). */
+let buscarMalla: (id: string) => MallaNorm | null = () => null;
+export function usarBuscador(f: (id: string) => MallaNorm | null) {
+  buscarMalla = f;
+}
+// rejilla de vértices de un hueso, para saber rápido la distancia a él
+const rejillas = new WeakMap<MallaNorm, Map<number, Map<string, number[]>>>();
+function rejilla(m: MallaNorm, celda: number) {
+  let porCelda = rejillas.get(m);
+  if (!porCelda) rejillas.set(m, (porCelda = new Map()));
+  let g = porCelda.get(celda);
+  if (g) return g;
+  g = new Map();
+  for (let i = 0; i < m.pos.length; i += 3) {
+    const k = `${Math.floor(m.pos[i] / celda)},${Math.floor(m.pos[i + 1] / celda)},${Math.floor(m.pos[i + 2] / celda)}`;
+    let l = g.get(k);
+    if (!l) g.set(k, (l = []));
+    l.push(m.pos[i], m.pos[i + 1], m.pos[i + 2]);
+  }
+  porCelda.set(celda, g);
+  return g;
+}
+/** Distancia (mundo) de un punto a la malla más cercana de la lista, hasta «max» (si no, Infinity). */
+function distanciaA(ms: MallaNorm[], celda: number, x: number, y: number, z: number) {
+  let best = Infinity;
+  const cx = Math.floor(x / celda), cy = Math.floor(y / celda), cz = Math.floor(z / celda);
+  for (const m of ms) {
+    const g = rejilla(m, celda);
+    for (let a = -1; a <= 1; a++)
+      for (let b = -1; b <= 1; b++)
+        for (let c = -1; c <= 1; c++) {
+          const l = g.get(`${cx + a},${cy + b},${cz + c}`);
+          if (!l) continue;
+          for (let j = 0; j < l.length; j += 3) {
+            const d = (l[j] - x) ** 2 + (l[j + 1] - y) ** 2 + (l[j + 2] - z) ** 2;
+            if (d < best) best = d;
+          }
+        }
+  }
+  return Math.sqrt(best);
 }
 
 export function prepararMalla(pos: Float32Array, espejo: boolean, nor?: Float32Array): MallaNorm {
@@ -76,6 +124,9 @@ export function pesos(m: MallaNorm, zonas: Zona[]): Float32Array {
       cara: z.cara ? normalizar([m.espejo ? -z.cara[0] : z.cara[0], z.cara[1], z.cara[2]]) : null,
       eje: z.fuera ?? z.dentro,
       signo: z.fuera ? 1 : -1,
+      // 1 unidad del mundo = 10 cm → 1 mm = 0.01
+      toca: z.toca ? z.toca.filter((id) => id !== m.id).map((id) => buscarMalla(id)).filter((x): x is MallaNorm => !!x) : null,
+      ancho: (z.ancho ?? 3) * 0.01,
     };
   });
   for (let i = 0; i < n; i++) {
@@ -99,6 +150,10 @@ export function pesos(m: MallaNorm, zonas: Zona[]): Float32Array {
         const l = Math.hypot(ox, oz) || 1;
         const dot = (z.signo * (m.nor[i * 3] * ox + m.nor[i * 3 + 2] * oz)) / l;
         v *= suave(0.1, 0.45, dot);
+      }
+      if (z.toca && v > 0) {
+        const dd = z.toca.length ? distanciaA(z.toca, z.ancho, m.pos[i * 3], m.pos[i * 3 + 1], m.pos[i * 3 + 2]) : Infinity;
+        v *= 1 - suave(0.5, 1, dd / z.ancho);
       }
       if (z.menos) resta = Math.max(resta, v);
       else mejor = Math.max(mejor, v);

@@ -6,7 +6,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { HUESOS, huesoPorId, REGIONES, type RegionId } from './data/huesos';
 import type { Estilo } from './srs';
-import { prepararMalla, pesos, aNormal, centroPintado, type MallaNorm, type Zona } from './zonas';
+import { prepararMalla, pesos, aNormal, centroPintado, usarBuscador, type MallaNorm, type Zona } from './zonas';
 
 type Vista = 'aislado' | 'conjunto' | 'todos';
 
@@ -180,6 +180,7 @@ export class Visor {
   clicable = false;
 
   constructor(contenedor: HTMLElement) {
+    usarBuscador((id) => this.mallaNorm(id));
     this.contenedor = contenedor;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setClearColor(0x000000, 0);
@@ -345,6 +346,7 @@ export class Visor {
       }
     }
     const m = prepararMalla(pos, espejo, nor);
+    m.id = id;
     this.mallasNorm.set(id, m);
     return m;
   }

@@ -1059,6 +1059,81 @@ export const APARTADOS: Apartado[] = [
       { id: 'tuberosidad', nombre: 'tuberosidad de la falange distal', sinonimos: ['tuberosidad distal', 'tuberosidad ungueal'], en: 'tuberosity of distal phalanx', enSin: ['ungual tuberosity'], zonas: { FMA32650: [{ c: [0.351, 0.287, 0.911], r: 0.185 }], FMA32652: [{ c: [0.464, 0.334, 0.913], r: 0.186 }], FMA32654: [{ c: [0.31, 0.399, 0.919], r: 0.176 }], FMA32656: [{ c: [0.292, 0.271, 0.921], r: 0.185 }], FMA32658: [{ c: [0.369, 0.479, 0.919], r: 0.166 }] }, dir: [0, 0.3, 1] },
     ],
   },
+  // ===== CRÁNEO (guía, página 16) =====
+  // suturas y sincondrosis: se pinta donde un hueso toca al otro («toca»)
+  {
+    id: 'calota',
+    nombre: 'Bóveda craneal (calota)',
+    en: 'Calvaria',
+    region: 'cabeza',
+    seccion: 'Cráneo',
+    huesos: ['FMA52734', 'FMA52788', 'FMA52789', 'FMA52735'],
+    conjunto: true,
+    partes: [
+      { id: 'frontal', nombre: 'hueso frontal', sinonimos: ['frontal'], en: 'frontal bone', zonas: { FMA52734: TODO }, dir: [0, 0.6, 1] },
+      { id: 'parietal', nombre: 'hueso parietal', sinonimos: ['parietal', 'parietales'], en: 'parietal bone', zonas: { FMA52788: TODO, FMA52789: TODO }, dir: [0, 1, 0.1] },
+      { id: 'occipital', nombre: 'hueso occipital', sinonimos: ['occipital'], en: 'occipital bone', zonas: { FMA52735: TODO }, dir: [0, 0.5, -1] },
+      { id: 'coronal', nombre: 'sutura coronal', sinonimos: ['sutura frontoparietal', 'coronal'], en: 'coronal suture', zonas: { FMA52734: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52788', 'FMA52789'], ancho: 4 }], FMA52788: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52734'], ancho: 4 }], FMA52789: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52734'], ancho: 4 }] }, dir: [0, 1, 0.5] },
+      { id: 'sagital', nombre: 'sutura sagital', sinonimos: ['sutura interparietal', 'sagital'], en: 'sagittal suture', zonas: { FMA52788: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52788', 'FMA52789'], ancho: 4 }], FMA52789: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52788', 'FMA52789'], ancho: 4 }] }, dir: [0, 1, 0] },
+      { id: 'lambdoidea', nombre: 'sutura lambdoidea', sinonimos: ['sutura lambdoide', 'lambdoidea', 'sutura occipitoparietal'], en: 'lambdoid suture', zonas: { FMA52735: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52788', 'FMA52789'], ancho: 4 }], FMA52788: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52735'], ancho: 4 }], FMA52789: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52735'], ancho: 4 }] }, dir: [0, 0.6, -1] },
+    ],
+  },
+  {
+    id: 'base-craneo',
+    nombre: 'Base del cráneo (cara interna)',
+    en: 'Cranial base (internal surface)',
+    region: 'cabeza',
+    seccion: 'Cráneo',
+    huesos: ['FMA52740', 'FMA52736', 'FMA52738', 'FMA52739', 'FMA52735'],
+    conjunto: true,
+    partes: [
+      { id: 'etmoides', nombre: 'etmoides', sinonimos: ['hueso etmoides'], en: 'ethmoid bone', zonas: { FMA52740: TODO }, dir: [0, 1, 0.3] },
+      { id: 'esfenoides', nombre: 'esfenoides', sinonimos: ['hueso esfenoides'], en: 'sphenoid bone', zonas: { FMA52736: TODO }, dir: [0, 1, 0.3] },
+      { id: 'temporal-petrosa', nombre: 'temporal (porción petrosa)', sinonimos: ['porcion petrosa del temporal', 'peñasco', 'piramide petrosa'], en: 'temporal bone (petrous part)', zonas: { FMA52738: [{ c: [0.78, 0.42, 0.55], r: 0.28 }], FMA52739: [{ c: [0.78, 0.42, 0.55], r: 0.28 }] }, dir: [0, 1, 0.3] },
+      { id: 'occipital-basilar', nombre: 'occipital (porción basilar)', sinonimos: ['porcion basilar del occipital', 'apofisis basilar', 'clivus'], en: 'occipital bone (basilar part)', zonas: { FMA52735: [{ c: [0.5, 0.22, 0.9], r: 0.13 }] }, dir: [0, 1, 0.3] },
+      { id: 'esfenoetmoidal', nombre: 'sincondrosis esfenoetmoidal', sinonimos: ['esfenoetmoidal'], en: 'sphenoethmoidal synchondrosis', zonas: { FMA52736: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52740'], ancho: 4 }], FMA52740: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52736'], ancho: 4 }] }, dir: [0, 1, 0.4] },
+      { id: 'esfenooccipital', nombre: 'sincondrosis esfenooccipital', sinonimos: ['esfenooccipital', 'esfeno-occipital'], en: 'spheno-occipital synchondrosis', zonas: { FMA52736: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52735'], ancho: 4 }], FMA52735: [{ c: [0.5, 0.5, 0.5], r: [3, 3, 3], norm: true, toca: ['FMA52736'], ancho: 4 }] }, dir: [0, 1, 0.2] },
+      { id: 'esfenopetrosa', nombre: 'sincondrosis esfenopetrosa', sinonimos: ['esfenopetrosa'], en: 'sphenopetrosal synchondrosis', zonas: { FMA52736: [{ c: [0.214, 0.396, 0.214], r: 0.17, sim: true, toca: ['FMA52738', 'FMA52739'], ancho: 4 }], FMA52738: [{ c: [0.722, 0.391, 0.618], r: 0.15, toca: ['FMA52736'], ancho: 4 }], FMA52739: [{ c: [0.722, 0.391, 0.618], r: 0.15, toca: ['FMA52736'], ancho: 4 }] }, dir: [0, 1, 0.2] },
+      { id: 'petrooccipital', nombre: 'sincondrosis petrooccipital', sinonimos: ['petrooccipital', 'petro-occipital'], en: 'petro-occipital synchondrosis', zonas: { FMA52735: [{ c: [0.267, 0.171, 0.776], r: 0.19, sim: true, toca: ['FMA52738', 'FMA52739'], ancho: 4 }], FMA52738: [{ c: [0.932, 0.375, 0.541], r: 0.13, toca: ['FMA52735'], ancho: 4 }], FMA52739: [{ c: [0.932, 0.375, 0.541], r: 0.13, toca: ['FMA52735'], ancho: 4 }] }, dir: [0, 1, 0] },
+    ],
+  },
+  // temporal derecho: x 0 = lateral, 1 = medial (vértice del peñasco); z 0 = atrás
+  {
+    id: 'temporal',
+    nombre: 'Hueso temporal',
+    en: 'Temporal bone',
+    region: 'cabeza',
+    seccion: 'Cráneo',
+    huesos: ['FMA52738', 'FMA52739'],
+    partes: [
+      { id: 'escamosa', nombre: 'porción escamosa del temporal', sinonimos: ['escama del temporal', 'porcion escamosa'], en: 'squamous part', zonas: [{ c: [0.12, 0.78, 0.6], r: [0.25, 0.3, 0.45], norm: true }], dir: [-1, 0.2, 0.2] },
+      { id: 'timpanica', nombre: 'porción timpánica del temporal', sinonimos: ['porcion timpanica', 'hueso timpanico'], en: 'tympanic part', zonas: [{ c: [0.492, 0.293, 0.557], r: 0.09 }], dir: [-1, -0.4, 0.3] },
+      { id: 'petrosa', nombre: 'porción petrosa del temporal', sinonimos: ['porcion petrosa', 'peñasco', 'piramide petrosa'], en: 'petrous part', zonas: [{ c: [0.78, 0.42, 0.55], r: 0.28 }], dir: [0.5, -1, 0.3] },
+      { id: 'mastoides', nombre: 'apófisis mastoides', sinonimos: ['mastoides', 'apofisis mastoides'], en: 'mastoid process', zonas: [{ c: [0.382, 0.188, 0.232], r: 0.08 }], dir: [-1, -0.3, -0.4] },
+      { id: 'escotadura-mastoidea', nombre: 'escotadura mastoidea', sinonimos: ['ranura digastrica', 'surco digastrico'], en: 'mastoid notch', zonas: [{ c: [0.491, 0.199, 0.221], r: 0.035 }], dir: [0, -1, -0.4] },
+      { id: 'estiloides', nombre: 'apófisis estiloides', sinonimos: ['estiloides', 'apofisis estiloides del temporal'], en: 'styloid process', zonas: cadena([[0.54, 0, 0.54], [0.52, 0.1, 0.52], [0.5, 0.18, 0.5]], 0.03, 2), dir: [-1, -0.3, 0.3] },
+      { id: 'fosa-yugular', nombre: 'fosa yugular', sinonimos: ['fosa de la yugular'], en: 'jugular fossa', zonas: [{ c: [0.685, 0.298, 0.442], r: 0.05 }], dir: [0.3, -1, 0] },
+      { id: 'orificio-carotideo', nombre: 'orificio externo del conducto carotídeo', sinonimos: ['orificio externo del conducto carotideo', 'agujero carotideo', 'conducto carotideo'], en: 'external opening of carotid canal', zonas: [{ c: [0.671, 0.275, 0.576], r: 0.04 }], dir: [0.3, -1, 0.2] },
+    ],
+  },
+  // occipital: z 0 = atrás (escama), z 1 = delante (porción basilar)
+  {
+    id: 'occipital',
+    nombre: 'Hueso occipital',
+    en: 'Occipital bone',
+    region: 'cabeza',
+    seccion: 'Cráneo',
+    huesos: ['FMA52735'],
+    partes: [
+      { id: 'protuberancia', nombre: 'protuberancia occipital externa', sinonimos: ['inion', 'protuberancia occipital'], en: 'external occipital protuberance', enSin: ['inion'], zonas: [{ c: [0.521, 0.447, 0.029], r: 0.07 }], dir: [0, 0, -1] },
+      { id: 'nucal-superior', nombre: 'línea nucal superior', sinonimos: ['linea nucal superior', 'linea curva occipital superior'], en: 'superior nuchal line', zonas: cadena([[0.521, 0.447, 0.029], [0.343, 0.426, 0.089], [0.195, 0.431, 0.198], [0.051, 0.398, 0.321]], 0.04, 4).map((z) => ({ ...z, sim: true })), dir: [0, -0.1, -1] },
+      { id: 'nucal-inferior', nombre: 'línea nucal inferior', sinonimos: ['linea nucal inferior', 'linea curva occipital inferior'], en: 'inferior nuchal line', zonas: cadena([[0.511, 0.27, 0.13], [0.326, 0.272, 0.156], [0.229, 0.249, 0.234]], 0.04, 4).map((z) => ({ ...z, sim: true })), dir: [0, -0.6, -1] },
+      { id: 'cresta-externa', nombre: 'cresta occipital externa', sinonimos: ['cresta occipital'], en: 'external occipital crest', zonas: cadena([[0.521, 0.447, 0.029], [0.51, 0.37, 0.05], [0.51, 0.28, 0.12], [0.511, 0.156, 0.272]], 0.035, 3), dir: [0, -0.6, -1] },
+      { id: 'agujero-magno', nombre: 'agujero magno (agujero occipital)', sinonimos: ['agujero magno', 'agujero occipital', 'foramen magnum'], en: 'foramen magnum', zonas: [{ c: [0.5, 0.05, 0.6], r: [0.2, 0.12, 0.28] }, { c: [0.365, 0.018, 0.747], r: 0.07, sim: true, menos: true }], dir: [0, -1, -0.2] },
+      { id: 'condilo', nombre: 'cóndilo occipital', sinonimos: ['condilo occipital', 'condilos occipitales'], en: 'occipital condyle', zonas: [{ c: [0.365, 0.018, 0.747], r: 0.11, sim: true }], dir: [0, -1, 0.2] },
+      { id: 'hipogloso', nombre: 'conducto del nervio hipogloso', sinonimos: ['conducto hipogloso', 'canal del hipogloso', 'agujero condileo anterior'], en: 'hypoglossal canal', zonas: [{ c: [0.331, 0.066, 0.824], r: 0.045, sim: true }], dir: [-0.4, -1, 0.4] },
+    ],
+  },
 ];
 
 export const apartadoPorId = new Map(APARTADOS.map((a) => [a.id, a]));
