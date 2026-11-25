@@ -20,6 +20,10 @@ export interface Zona {
   norm?: boolean;
   /** pintar solo donde la superficie mira hacia aquí (x: hacia la izquierda del paciente… en el lado derecho; se refleja en el izquierdo) */
   cara?: [number, number, number];
+  /** pintar solo donde la superficie mira hacia fuera de este punto, en horizontal (cara externa de una costilla…) */
+  fuera?: [number, number, number];
+  /** pintar solo donde la superficie mira hacia este punto, en horizontal (cara interna) */
+  dentro?: [number, number, number];
 }
 
 /** Datos de la malla ya preparados para pintar rápido. */
@@ -70,6 +74,8 @@ export function pesos(m: MallaNorm, zonas: Zona[]): Float32Array {
       c: [m.min[0] + x * m.tam[0], m.min[1] + z.c[1] * m.tam[1], m.min[2] + z.c[2] * m.tam[2]],
       inv: r.map((ri, k) => 1 / Math.max(1e-6, ri * (z.norm ? m.tam[k] : m.maxTam))),
       cara: z.cara ? normalizar([m.espejo ? -z.cara[0] : z.cara[0], z.cara[1], z.cara[2]]) : null,
+      eje: z.fuera ?? z.dentro,
+      signo: z.fuera ? 1 : -1,
     };
   });
   for (let i = 0; i < n; i++) {
@@ -85,6 +91,14 @@ export function pesos(m: MallaNorm, zonas: Zona[]): Float32Array {
       if (z.cara && m.nor) {
         const dot = m.nor[i * 3] * z.cara[0] + m.nor[i * 3 + 1] * z.cara[1] + m.nor[i * 3 + 2] * z.cara[2];
         v *= suave(0.15, 0.55, dot);
+      }
+      if (z.eje && m.nor) {
+        const ex = m.min[0] + (m.espejo ? 1 - z.eje[0] : z.eje[0]) * m.tam[0];
+        const ez = m.min[2] + z.eje[2] * m.tam[2];
+        const ox = m.pos[i * 3] - ex, oz = m.pos[i * 3 + 2] - ez;
+        const l = Math.hypot(ox, oz) || 1;
+        const dot = (z.signo * (m.nor[i * 3] * ox + m.nor[i * 3 + 2] * oz)) / l;
+        v *= suave(0.1, 0.45, dot);
       }
       if (z.menos) resta = Math.max(resta, v);
       else mejor = Math.max(mejor, v);

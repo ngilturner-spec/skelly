@@ -17,7 +17,7 @@ const panel = document.querySelector<HTMLElement>('#panel')!;
 const barra = document.querySelector<HTMLElement>('#barra')!;
 const visor = new Visor(document.querySelector<HTMLElement>('#visor')!);
 
-type Pantalla = 'inicio' | 'estudio' | 'explorar' | 'partes' | 'ajustes' | 'editor';
+type Pantalla = 'inicio' | 'estudio' | 'explorar' | 'partes' | 'ajustes' | 'editor' | 'zona';
 let pantalla: Pantalla = 'inicio';
 let teclas: ((e: KeyboardEvent) => void) | null = null;
 let huesoAnterior: string | undefined;
@@ -78,6 +78,16 @@ function pintarBarra() {
     const regionSel = a.regiones.length === REGIONES.length ? 'todas' : a.regiones[0];
     const modoSel = a.modos.length === TODOS_MODOS.length ? 'mezcla' : a.modos[0];
     const pct = Math.min(100, (100 * sesion.hechas) / Math.max(1, sesion.objetivo));
+    const foco = srs.focoActual();
+    if (foco) {
+      barra.innerHTML = `
+      <span class="logo ocultar-movil"><span class="punto"></span>skelly</span>
+      <button class="icono" id="salir" title="${t('volver')}">←</button>
+      <div class="progreso"><div style="width:${pct}%"></div></div>
+      <span class="zona-barra">${esc(nombreZona(foco.grupos))} · ${TIPOS_ZONA[foco.tipo]()}</span>`;
+      barra.querySelector<HTMLButtonElement>('#salir')!.onclick = () => ir('zona');
+      return;
+    }
     barra.innerHTML = `
       <span class="logo ocultar-movil"><span class="punto"></span>skelly</span>
       <button class="icono" id="salir" title="${t('volver')}">←</button>
@@ -113,11 +123,12 @@ function pintarBarra() {
   ];
   barra.innerHTML = `
     <span class="logo"><span class="punto"></span>skelly</span>
-    <nav>${pest.map(([p, n]) => `<button data-p="${p}" class="${pantalla === p || (p === 'ajustes' && pantalla === 'editor') ? 'activo' : ''}">${n}</button>`).join('')}</nav>`;
+    <nav>${pest.map(([p, n]) => `<button data-p="${p}" class="${pantalla === p || (p === 'ajustes' && pantalla === 'editor') || (p === 'inicio' && pantalla === 'zona') ? 'activo' : ''}">${n}</button>`).join('')}</nav>`;
   todos<HTMLButtonElement>('[data-p]', barra).forEach((b) => (b.onclick = () => ir(b.dataset.p as Pantalla)));
 }
 
 function ir(p: Pantalla) {
+  if (p !== 'estudio') srs.enfocar(null);
   pantalla = p;
   teclas = null;
   visor.clicable = false;
@@ -129,6 +140,7 @@ function ir(p: Pantalla) {
   else if (p === 'explorar') explorar();
   else if (p === 'partes') partesUI();
   else if (p === 'ajustes') ajustesUI();
+  else if (p === 'zona') zonaUI();
   else editor();
 }
 
@@ -157,6 +169,7 @@ function inicio() {
     <div class="chips">${(Object.keys(MODOS_T) as Modo[]).map((m) => `<button class="chip ${a.modos.includes(m) ? 'activo' : ''}" data-m="${m}">${MODOS_T[m]()}</button>`).join('')}</div>
     <div class="botones">
       ${hayAlgo ? `<button class="btn principal grande" id="empezar">${t('empezar')}</button>` : `<button class="btn grande" id="mas">${t('estudiarMas')}</button>`}
+      <button class="btn grande" id="zona">${t('repasarZona')}</button>
     </div>
     <h3>${t('ultimos14')}</h3>
     ${
@@ -180,6 +193,7 @@ function inicio() {
         inicio();
       }),
   );
+  $('#zona').onclick = () => ir('zona');
   if (hayAlgo) $('#empezar').onclick = () => empezarSesion();
   else
     $('#mas').onclick = () => {
@@ -193,7 +207,9 @@ function inicio() {
 
 function empezarSesion() {
   const c = srs.contadores();
-  sesion = { objetivo: Math.max(1, c.pendientes + c.nuevasHoy), hechas: 0 };
+  // repasando una zona sin nada pendiente: se repasan unas cuantas por adelantado
+  const extra = srs.focoActual() && !(c.pendientes + c.nuevasHoy) ? Math.min(20, c.total) : 0;
+  sesion = { objetivo: Math.max(1, c.pendientes + c.nuevasHoy + extra), hechas: 0 };
   ir('estudio');
 }
 
@@ -206,6 +222,8 @@ function etiquetaDe(tj: Tarjeta) {
 
 function siguienteTarjeta() {
   pintarBarra();
+  // en una zona siempre queda alguna tarjeta: se para al llegar al objetivo
+  if (srs.focoActual() && sesion.hechas >= sesion.objetivo) return terminado();
   const tj = srs.siguiente(huesoAnterior);
   if (!tj) return terminado();
   huesoAnterior = tj.hueso;
@@ -419,13 +437,67 @@ function terminado() {
   h(`
     <h1>${t('hecho')}</h1>
     <p class="ayuda">${t('hechoTexto')}</p>
-    ${c.sinVer ? `<div class="botones"><button class="btn principal" id="mas">${t('estudiarMas')}</button></div>` : ''}
+    ${srs.focoActual() ? `<div class="botones"><button class="btn principal" id="otraVez">${t('zonaOtraVez')}</button><button class="btn" id="otraZona">${t('repasarZona')}</button></div>` : ''}
+    ${c.sinVer && !srs.focoActual() ? `<div class="botones"><button class="btn principal" id="mas">${t('estudiarMas')}</button></div>` : ''}
     <div class="botones"><button class="btn" id="volver">${t('volver')}</button></div>`);
-  if (c.sinVer)
+  if (srs.focoActual()) {
+    $('#otraVez').onclick = () => empezarSesion();
+    $('#otraZona').onclick = () => ir('zona');
+  } else if (c.sinVer)
     $('#mas').onclick = () => {
       srs.masNuevasHoy(10);
       empezarSesion();
     };
+  $('#volver').onclick = () => ir('inicio');
+}
+
+// ================= REPASAR UNA ZONA =================
+// Se elige qué repasar (huesos, partes o ambos) y un grupo de huesos (o toda la región).
+let tipoZona: srs.TipoZona = 'ambos';
+const TIPOS_ZONA: Record<srs.TipoZona, () => string> = { huesos: () => t('zonaHuesos'), partes: () => t('zonaPartes'), ambos: () => t('zonaAmbos') };
+const regionDeGrupo = (g: Grupo) => HUESOS.find((x) => x.grupo === g)?.region;
+function nombreZona(gs: Grupo[]) {
+  if (gs.length === 1) return nombreGrupo(gs[0]);
+  const r = regionDeGrupo(gs[0]);
+  return r ? nombreRegion(r) : gs.map(nombreGrupo).join(', ');
+}
+function zonaUI() {
+  visor.mostrarTodos('completo');
+  const grupos = Object.keys(GRUPOS) as Grupo[];
+  const boton = (gs: Grupo[], txt: string) => {
+    const k = srs.tarjetasDeZona(gs, tipoZona).length;
+    return `<button class="chip" data-zg="${gs.join(',')}" ${k ? '' : 'disabled'}>${esc(txt)} <small>${k}</small></button>`;
+  };
+  h(`
+    <h2>${t('repasarZona')}</h2>
+    <div class="ayuda">${t('zonaAyuda')}</div>
+    <div class="chips">${(Object.keys(TIPOS_ZONA) as srs.TipoZona[]).map((k) => `<button class="chip ${tipoZona === k ? 'activo' : ''}" data-tz="${k}">${TIPOS_ZONA[k]()}</button>`).join('')}</div>
+    ${REGIONES.map((r) => {
+      const gs = grupos.filter((g) => regionDeGrupo(g) === r.id);
+      return `<h3>${nombreRegion(r.id)}</h3><div class="chips">${boton(gs, t('zonaToda'))}${gs.map((g) => boton([g], nombreGrupo(g))).join('')}</div>`;
+    }).join('')}
+    <div class="botones"><button class="btn" id="volver">${t('volver')}</button></div>`);
+  todos<HTMLButtonElement>('[data-tz]').forEach(
+    (b) =>
+      (b.onclick = () => {
+        tipoZona = b.dataset.tz as srs.TipoZona;
+        zonaUI();
+      }),
+  );
+  todos<HTMLButtonElement>('[data-zg]').forEach((b) => {
+    const gs = b.dataset.zg!.split(',') as Grupo[];
+    // al pasar por encima se ven los huesos de la zona
+    b.onpointerenter = () => {
+      visor.limpiarMarcas();
+      HUESOS.filter((x) => gs.includes(x.grupo)).forEach((x) => visor.marcar(x.id, 'resalte'));
+    };
+    b.onpointerleave = () => visor.limpiarMarcas();
+    b.onclick = () => {
+      visor.limpiarMarcas();
+      srs.enfocar({ grupos: gs, tipo: tipoZona });
+      empezarSesion();
+    };
+  });
   $('#volver').onclick = () => ir('inicio');
 }
 
@@ -1056,6 +1128,63 @@ if (import.meta.env.DEV) {
       if (best) out.push(best.map((x) => x.toFixed(2)).join(','));
     }
     return out.join(' | ');
+  };
+  // punto más saliente en una dirección (mm del mundo), con filtro opcional en coords normalizadas
+  (window as unknown as Record<string, unknown>).__ext = (id: string, d: number[], filtro?: (p: number[]) => boolean) => {
+    const m = visor.mallaNorm(id)!;
+    let b: number[] | null = null, bv = -1e9;
+    for (let i = 0; i < m.pos.length / 3; i++) {
+      const p = [0, 1, 2].map((j) => (m.pos[i * 3 + j] - m.min[j]) / m.tam[j]);
+      if (m.espejo) p[0] = 1 - p[0];
+      if (filtro && !filtro(p)) continue;
+      const v = p[0] * d[0] * m.tam[0] + p[1] * d[1] * m.tam[1] + p[2] * d[2] * m.tam[2];
+      if (v > bv) { bv = v; b = p; }
+    }
+    return b!.map((x) => +x.toFixed(3));
+  };
+  // lleva puntos normalizados al vértice más cercano de la superficie (devuelve [x, y, z, distancia en mm])
+  (window as unknown as Record<string, unknown>).__snap = (id: string, pts: number[][]) => {
+    const m = visor.mallaNorm(id)!;
+    return pts.map((q) => {
+      let b: number[] = [], bd = 1e9;
+      for (let i = 0; i < m.pos.length / 3; i++) {
+        const p = [0, 1, 2].map((j) => (m.pos[i * 3 + j] - m.min[j]) / m.tam[j]);
+        if (m.espejo) p[0] = 1 - p[0];
+        const d = Math.hypot(...[0, 1, 2].map((j) => (p[j] - q[j]) * m.tam[j]));
+        if (d < bd) { bd = d; b = p; }
+      }
+      return [...b.map((x) => +x.toFixed(3)), +(bd * 100).toFixed(1)];
+    });
+  };
+  // zona de A que toca a B (o a varios): centro, radio (fracción de la medida mayor) y hacia dónde mira
+  (window as unknown as Record<string, unknown>).__contacto = (A: string, B: string | string[], extra = 0.03, filtro?: (p: number[]) => boolean) => {
+    const ma = visor.mallaNorm(A)!;
+    const Bs = (Array.isArray(B) ? B : [B]).map((b) => visor.mallaNorm(b)!);
+    const n = ma.pos.length / 3;
+    const d = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let best = 1e9;
+      const x = ma.pos[i * 3], y = ma.pos[i * 3 + 1], z = ma.pos[i * 3 + 2];
+      for (const mb of Bs) for (let j = 0; j < mb.pos.length; j += 9) {
+        const dx = mb.pos[j] - x, dy = mb.pos[j + 1] - y, dz = mb.pos[j + 2] - z;
+        const q = dx * dx + dy * dy + dz * dz;
+        if (q < best) best = q;
+      }
+      d[i] = Math.sqrt(best);
+    }
+    let mn = 1e9;
+    for (const v of d) mn = Math.min(mn, v);
+    const sel: number[] = [];
+    const nc0 = (i: number) => { const p = [0, 1, 2].map((j) => (ma.pos[i * 3 + j] - ma.min[j]) / ma.tam[j]); if (ma.espejo) p[0] = 1 - p[0]; return p; };
+    if (filtro) { mn = 1e9; for (let i = 0; i < n; i++) if (filtro(nc0(i))) mn = Math.min(mn, d[i]); }
+    for (let i = 0; i < n; i++) if (d[i] < mn + extra && (!filtro || filtro(nc0(i)))) sel.push(i);
+    const nc = (i: number) => [0, 1, 2].map((j) => (ma.pos[i * 3 + j] - ma.min[j]) / ma.tam[j]);
+    const c = [0, 0, 0], nr = [0, 0, 0];
+    for (const i of sel) { const p = nc(i); for (let j = 0; j < 3; j++) { c[j] += p[j] / sel.length; if (ma.nor) nr[j] += ma.nor[i * 3 + j]; } }
+    const ds = sel.map((i) => { const p = nc(i); return Math.hypot(...[0, 1, 2].map((j) => ((p[j] - c[j]) * ma.tam[j]) / ma.maxTam)); }).sort((a, b) => a - b);
+    const L = Math.hypot(...nr) || 1;
+    if (ma.espejo) { c[0] = 1 - c[0]; nr[0] = -nr[0]; }
+    return { c: c.map((v) => +v.toFixed(3)), r: +(ds[Math.floor(ds.length * 0.85)] ?? 0.1).toFixed(3), cara: nr.map((v) => +(v / L).toFixed(2)), n: sel.length, gapmm: +(mn * 100).toFixed(1) };
   };
   // cuántos vértices pinta cada parte (peso > 0.5) en el hueso i del apartado
   (window as unknown as Record<string, unknown>).__cuenta = async (ap: string, i = 0) => {

@@ -715,3 +715,8 @@ input[type='number'] {
     display: none;
   }
 }
+
+/* repasar una zona */
+.chip:disabled { opacity: 0.4; cursor: default; }
+.chip small { color: var(--tenue); margin-left: 0.2em; }
+.zona-barra { font-size: 0.9rem; color: var(--tenue); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

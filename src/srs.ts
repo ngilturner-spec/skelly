@@ -1,6 +1,6 @@
 // Repetición espaciada (FSRS) + nivel de pista de cada tarjeta + estadísticas. Todo se guarda en el navegador.
 import { createEmptyCard, fsrs, Rating, type Card, type Grade } from 'ts-fsrs';
-import { HUESOS, REGIONES, type RegionId } from './data/huesos';
+import { HUESOS, REGIONES, huesoPorId, type Grupo, type RegionId } from './data/huesos';
 import { PREGUNTAS_PARTES } from './data/partes';
 import { NIVEL_MAX } from './answer';
 
@@ -90,7 +90,34 @@ export function cambiarAjustes(a: Partial<Ajustes>) {
   guardar();
 }
 
+// ---- repasar una zona (solo durante la sesión, no se guarda) ----
+export type TipoZona = 'huesos' | 'partes' | 'ambos';
+let foco: { grupos: Grupo[]; tipo: TipoZona } | null = null;
+export const focoActual = () => foco;
+export function enfocar(f: { grupos: Grupo[]; tipo: TipoZona } | null) {
+  foco = f;
+}
+const MODOS_HUESO: Modo[] = ['aislado', 'conjunto', 'localizar'];
+/** Tarjetas de unos grupos de huesos: los huesos, sus partes o ambos. No mira las regiones ni los tipos de Inicio. */
+export function tarjetasDeZona(grupos: Grupo[], tipo: TipoZona): Tarjeta[] {
+  const gs = new Set<string>(grupos);
+  const out: Tarjeta[] = [];
+  if (tipo !== 'partes') {
+    const hs = HUESOS.filter((h) => gs.has(h.grupo));
+    const elegidos = datos.ajustes.modos.filter((m) => m !== 'partes');
+    for (const modo of elegidos.length ? elegidos : MODOS_HUESO) {
+      const ids = new Set(hs.map((h) => (modo === 'conjunto' ? h.id : modo === 'aislado' ? (h.tipo ?? h.par ?? h.id) : (h.tipo ?? h.id))));
+      for (const id of ids) out.push({ clave: `${id}:${modo}`, hueso: id, modo });
+    }
+  }
+  if (tipo !== 'huesos')
+    for (const p of PREGUNTAS_PARTES)
+      if (p.apartado.huesos.some((id) => gs.has(huesoPorId.get(id)?.grupo ?? ''))) out.push({ clave: `${p.id}:partes`, hueso: p.id, modo: 'partes' });
+  return out;
+}
+
 function todasLasTarjetas(): Tarjeta[] {
+  if (foco) return tarjetasDeZona(foco.grupos, foco.tipo);
   const a = datos.ajustes;
   const hs = HUESOS.filter((h) => a.regiones.includes(h.region));
   return a.modos.flatMap((modo): Tarjeta[] => {
@@ -117,12 +144,13 @@ export function siguiente(huesoAnterior?: string): Tarjeta | null {
   const due = (t: Tarjeta) => datos.estados[t.clave].card.due.getTime();
   const vistas = todas.filter((t) => datos.estados[t.clave]);
   const vencidas = vistas.filter((t) => due(t) <= ahora);
-  const nuevas = contadorHoy().nuevas < datos.ajustes.nuevasPorDia ? todas.filter((t) => !datos.estados[t.clave]) : [];
+  const nuevas = foco || contadorHoy().nuevas < datos.ajustes.nuevasPorDia ? todas.filter((t) => !datos.estados[t.clave]) : [];
   // mezcla repasos y nuevas
   const candidatas = [...vencidas, ...nuevas];
   const elegida = azar(candidatas.filter(distinta)) ?? azar(candidatas);
   if (elegida) return elegida;
-  const pronto = vistas.filter((t) => due(t) <= ahora + MARGEN_APRENDIZAJE).sort((a, b) => due(a) - due(b));
+  // repasando una zona: si no toca nada, se adelanta lo que vence antes
+  const pronto = vistas.filter((t) => foco || due(t) <= ahora + MARGEN_APRENDIZAJE).sort((a, b) => due(a) - due(b));
   return pronto.find(distinta) ?? pronto[0] ?? null;
 }
 
@@ -131,7 +159,7 @@ export function contadores() {
   const todas = todasLasTarjetas();
   const pendientes = todas.filter((t) => datos.estados[t.clave] && datos.estados[t.clave].card.due.getTime() <= ahora).length;
   const sinVer = todas.filter((t) => !datos.estados[t.clave]).length;
-  const nuevasHoy = Math.max(0, Math.min(sinVer, datos.ajustes.nuevasPorDia - contadorHoy().nuevas));
+  const nuevasHoy = foco ? sinVer : Math.max(0, Math.min(sinVer, datos.ajustes.nuevasPorDia - contadorHoy().nuevas));
   const dominadas = todas.filter((t) => (datos.estados[t.clave]?.nivel ?? 0) >= NIVEL_MAX).length;
   return { pendientes, nuevasHoy, sinVer, total: todas.length, dominadas };
 }
