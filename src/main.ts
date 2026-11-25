@@ -8,7 +8,7 @@ import { t, tGrupo, tRegion, idioma, cambiarIdioma, nombre, sinonimos, nombreDe,
 import { sonidoAcierto, sonidoFallo } from './sonido';
 import * as srs from './srs';
 import { BufferAttribute as THREE_BA } from 'three';
-import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, anadirParte, eliminarParte, esPropia, borradasEn, recuperarBorradas, cambiosPropios, hayCambiosPropios, type Apartado } from './data/partes';
+import { APARTADOS, apartadoPorId, partePorId, zonasDe, huesosDe, guardarZonas, zonasCorregidas, anadirParte, eliminarParte, esPropia, borradasEn, recuperarBorradas, cambiosPropios, hayCambiosPropios, importarCambios, type Apartado } from './data/partes';
 import type { Zona } from './zonas';
 import { pesoEnPunto, aNormal, pesos } from './zonas';
 import type { Estilo, Modo, Tarjeta } from './srs';
@@ -817,7 +817,13 @@ function partesUI(reencuadrar = true) {
               .join('')}</div>`,
         )
         .join('')}
-      ${nCambios ? `<div class="ayuda">${t('cambiosTuyos')}: ${nCambios}</div><button class="btn" id="copiar">${t('copiarCorr')}</button>` : ''}`);
+      <h3>${t('otrosDispositivos')}</h3>
+      <div class="ayuda">${t('ayudaDispositivos')}</div>
+      ${nCambios ? `<div class="ayuda">${t('cambiosTuyos')}: ${nCambios}</div>` : ''}
+      <div class="botones">
+        ${nCambios ? `<button class="btn" id="copiar">${t('copiarCorr')}</button>` : ''}
+        <button class="btn" id="pegar">${t('pegarCambios')}</button>
+      </div>`);
     todos<HTMLButtonElement>('[data-ap]').forEach(
       (b) =>
         (b.onclick = () => {
@@ -837,6 +843,24 @@ function partesUI(reencuadrar = true) {
           prompt(t('copiarCorr'), txt);
         }
       };
+    $('#pegar').onclick = async () => {
+      // primero se intenta leer el portapapeles; si no deja, se pide pegarlo a mano
+      let txt = '';
+      try {
+        txt = await navigator.clipboard.readText();
+      } catch {
+        /* sin permiso */
+      }
+      if (!txt.trim().startsWith('{')) txt = prompt(t('pegaAqui')) ?? '';
+      if (!txt.trim()) return;
+      try {
+        const n = importarCambios(txt);
+        alert(`${t('cambiosPegados')}: ${n}`);
+        partesUI();
+      } catch {
+        alert(t('cambiosMal'));
+      }
+    };
     return;
   }
   const ids = huesosDe(ap, partesHueso);

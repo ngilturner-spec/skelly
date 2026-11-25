@@ -1250,6 +1250,39 @@ export function guardarZonas(clave: string, zonas: ZonasParte | null) {
   localStorage.setItem(CLAVE_ZONAS, JSON.stringify(corregidas));
 }
 
+/**
+ * Mete los cambios copiados en otro dispositivo («Copiar mis cambios»).
+ * Se suman a los de aquí: las zonas que vienen sustituyen a las de aquí para esa parte.
+ * Devuelve cuántas cosas ha metido (o lanza un error si el texto no vale).
+ */
+export function importarCambios(txt: string): number {
+  const d = JSON.parse(txt.trim()) as Partial<ReturnType<typeof cambiosPropios>>;
+  if (!d || typeof d !== 'object' || (!d.zonas && !d.nuevas && !d.borradas)) throw new Error('formato');
+  let n = 0;
+  for (const [k, v] of Object.entries(d.zonas ?? {}))
+    if (k.startsWith('PT:') && v && typeof v === 'object') {
+      corregidas[k] = v;
+      n++;
+    }
+  for (const [ap, ps] of Object.entries(d.nuevas ?? {})) {
+    if (!Array.isArray(ps)) continue;
+    const lista = (propias.nuevas[ap] ??= []);
+    for (const p of ps)
+      if (p?.id && p.nombre && !lista.some((x) => x.id === p.id)) {
+        lista.push({ id: p.id, nombre: p.nombre, sinonimos: p.sinonimos ?? [], zonas: p.zonas });
+        n++;
+      }
+  }
+  for (const b of d.borradas ?? [])
+    if (typeof b === 'string' && !propias.borradas.includes(b)) {
+      propias.borradas.push(b);
+      n++;
+    }
+  localStorage.setItem(CLAVE_ZONAS, JSON.stringify(corregidas));
+  guardarPropias();
+  return n;
+}
+
 /** Zonas de una parte para unos huesos concretos. `clave` = id de la pregunta (PT:apartado:parte). */
 export function zonasDe(p: Parte, ids: string[], clave?: string) {
   const z = (clave ? corregidas[clave] : undefined) ?? p.zonas;
